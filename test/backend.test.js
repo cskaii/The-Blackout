@@ -61,6 +61,24 @@ test('session recovery returns only that team history and revealed hints', async
   assert.equal(other.terminalHistory.length, 0);
   assert.equal(other.ai.history.length, 0);
 });
+
+test('collected evidence survives transcript rollover and stays isolated between teams', async () => {
+  const app = createApp();
+  const a = await session(app, 2), b = await session(app, 2);
+  const initial = (await request(app, '/state', undefined, a.id)).data;
+  assert.deepEqual(initial.collectedEvidence, []);
+  for (const file of initial.requiredFiles) await request(app, '/terminal', { command: 'cat ' + file }, a.id);
+  for (let i = 0; i < 51; i++) await request(app, '/terminal', { command: 'pwd' }, a.id);
+  const restored = (await request(app, '/state', undefined, a.id)).data;
+  assert.equal(restored.terminalHistory.length, 50);
+  assert.equal(restored.evidenceReady, true);
+  assert.equal(restored.collectedEvidence.length, 3);
+  assert.match(restored.collectedEvidence.find(item => item.file === 'recovery.txt').content, /Snapshot B \| 02:10 \| integrity PASS/);
+  assert.ok(restored.revision > initial.revision);
+  assert.deepEqual((await request(app, '/state', undefined, b.id)).data.collectedEvidence, []);
+  assert.equal((await request(app, '/answer', { stage: 2, value: 'prompt-injection:update.txt' }, a.id)).data.state.stage, 3);
+  assert.equal((await request(app, '/answer', { stage: 3, value: 'update.txt:b:enable-alerts' }, a.id)).data.state.finished, true);
+});
 test('AI needs a valid session, active Stage 2 and valid input', async () => {
   const app = createApp();
   assert.equal((await request(app, '/ai', { message: 'hi' })).status, 401);

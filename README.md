@@ -23,7 +23,7 @@ One server-enforced countdown starts when the team clicks Begin mission. Stage t
 
 Each stage has an optional hint button. First comes a nudge, then a specific clue, then a clearly labelled walkthrough. Hints have no additional time penalty; the shared countdown continues. They do not auto-submit answers or unlock stages. The completed mission shows how many hints were revealed.
 
-Wrong answers allow retries without extra time penalties or revealing which component was correct. Players can review the full collected terminal transcript in Stage 3. Both end screens allow a fresh mission for the next team, resetting hints and selecting a random two-word passphrase different from the previous game and a random Caesar offset (3-7; the same offset can recur).
+Wrong answers allow retries without extra time penalties or revealing which component was correct. Stage 2 counts required evidence separately from optional files and includes an optional attack-type reference. Stage 3 opens with the contents of every examined file, preserved even when the rolling terminal transcript reaches its 50-command limit. Both end screens allow a fresh mission for the next team, resetting hints and selecting a random two-word passphrase different from the previous game and a random Caesar offset (3-7; the same offset can recur).
 
 The pacing is designed for a short event but has not been validated with visitor playtesting. Before the open house, trial it with beginners and check they can finish within five minutes using hints when needed.
 

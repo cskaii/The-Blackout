@@ -61,21 +61,34 @@ function formMessage(form, message) {
 }
 function update(s) {
   const previousStage = state?.stage;
+  const wasFinished = state?.finished;
+  let receivedAt = Date.now();
   // A delayed poll must not undo a submitted answer or a completed mission.
-  if (state && (s.stage < state.stage || (state.finished && !s.finished) ||
-      (state.expired && !s.expired) || s.readFiles.length < state.readFiles.length)) return;
+  if (state && (s.revision < state.revision || s.stage < state.stage || (state.finished && !s.finished) ||
+      (state.expired && !s.expired && !s.finished) || s.readFiles.length < state.readFiles.length)) return;
   if (state) {
     // Concurrent AI, terminal and polling responses must not erase newer data.
-    s.remainingSeconds = Math.min(s.remainingSeconds, state.remainingSeconds);
+    if (!s.finished) {
+      const localRemaining = Math.max(0, state.remainingSeconds - Math.floor((Date.now() - stateReceivedAt) / 1000));
+      if (localRemaining <= s.remainingSeconds) {
+        // Preserve fractional seconds too: frequent responses must not slow the clock.
+        receivedAt = stateReceivedAt + (state.remainingSeconds - localRemaining) * 1000;
+        s.remainingSeconds = localRemaining;
+      }
+    }
     if (s.ai.history.length < state.ai.history.length || s.ai.remainingRequests > state.ai.remainingRequests) s.ai = state.ai;
     for (const [stage, hint] of Object.entries(state.revealedHints || {})) {
       if ((s.revealedHints?.[stage]?.level || 0) < hint.level) s.revealedHints[stage] = hint;
     }
+    s.hintsUsed = Math.max(s.hintsUsed || 0, state.hintsUsed || 0);
   }
   const endedBefore = state?.expired || state?.finished;
   state = s;
-  stateReceivedAt = Date.now();
+  stateReceivedAt = receivedAt;
   Object.assign(hintHistory, s.revealedHints);
+  if (s.terminalHistory) {
+    terminalHistory = 'BLACKOUT RESPONSE CONSOLE\nWorkspace mounted. Type help for command syntax.' + s.terminalHistory.map(turn => '\n\nanalyst@blackout:~$ ' + turn.command + '\n' + turn.output).join('');
+  }
   syncAiPanel();
   document.querySelector('#stage').textContent = s.finished ? 'MISSION COMPLETE' : s.expired ? 'SYSTEM LOCKDOWN' : 'STAGE ' + s.stage + ' / 3 - ' + names[s.stage - 1];
   document.querySelector('#timer').textContent = String(Math.floor(s.remainingSeconds / 60)).padStart(2, '0') + ':' + String(s.remainingSeconds % 60).padStart(2, '0');
@@ -91,8 +104,17 @@ function update(s) {
   });
   if (s.expired || s.finished) {
     clearInterval(ticker);
-    if (!endedBefore) render();
+    if (!endedBefore || (s.finished && !wasFinished)) render();
   } else if (previousStage && previousStage !== s.stage) render();
+  if (s.stage === 2 && !s.expired && !s.finished) {
+    const output = document.querySelector('#output');
+    if (output && output.textContent !== terminalHistory) {
+      output.textContent = terminalHistory;
+      output.scrollTop = output.scrollHeight;
+    }
+    updateEvidence();
+  }
+  if (!s.expired && !s.finished && document.querySelector('#hint-button')) updateHintPanel();
 }
 function tickClock() {
   if (!state || state.finished || state.expired) return;
@@ -161,7 +183,7 @@ function render() {
   notice.textContent = '';
   if (state.finished || state.expired) {
     screen.innerHTML = state.finished
-      ? '<span class="eyebrow">INCIDENT CONTAINED</span><h2 id="screen-title" tabindex="-1">Power restored.</h2><p>You decoded the access phrase, traced the injected instruction to its source, and selected a safe recovery plan.</p><p class="lesson">A prompt injection hides instructions in untrusted content to manipulate an AI. Isolate its source, restore a verified pre-incident backup, and keep safety monitoring active.</p><p id="hint-count" class="muted"></p><button id="again">Start next team &rarr;</button>'
+      ? '<span class="eyebrow">INCIDENT CONTAINED</span><h2 id="screen-title" tabindex="-1">Power restored.</h2><p>You decoded the access phrase, traced the injected instruction to its source, and selected a safe recovery plan.</p><p class="lesson">The maintenance attachment contained a prompt injection: the controller treated untrusted text as instructions, disconnected power and hid the alarm. Quarantining update.txt removes that source. Snapshot B is the newest intact backup before 02:14. Re-enabling alerts restores monitoring. Future imports must be treated as evidence, with control actions checked independently.</p><p id="hint-count" class="muted"></p><button id="again">Start next team &rarr;</button>'
       : '<span class="eyebrow">RESPONSE WINDOW CLOSED</span><h2 id="screen-title" tabindex="-1">System lockdown.</h2><p>Time ran out before power could be restored. Try again with a fresh cipher key. Optional hints are available at every stage.</p><button id="again">Try again &rarr;</button>';
     if (state.finished) document.querySelector('#hint-count').textContent = 'Hints revealed: ' + state.hintsUsed + ' / 9';
     document.querySelector('#again').onclick = start;
@@ -169,7 +191,7 @@ function render() {
     return;
   }
   if (state.stage === 1) {
-    screen.innerHTML = '<span class="eyebrow">STAGE 01 // TARGET: 1 MINUTE</span><h2 id="screen-title" tabindex="-1">Crack the Code</h2><p>Decode the intercepted access phrase. The encoder settings survived on the backup panel; use them to calibrate the cipher wheel.</p><div class="cipher-message" id="cipher-message"></div><div class="backup-panel"><span class="eyebrow">BACKUP PANEL / ENCODER MEMORY</span><p>Encryption direction: FORWARD<br>Cipher key: count the cells marked FAILED. Cell numbers are identifiers, not the key.</p><div id="backup-cells" class="backup-cells" role="group" aria-label="Backup cell status"></div></div><div class="cipher-layout"><svg id="wheel" viewBox="0 0 300 300" role="img" aria-label="Adjustable Caesar wheel: outer ring is encrypted; inner ring is decoded"></svg><div class="wheel-controls"><label for="wheel-shift">Wheel offset</label><select id="wheel-shift" aria-describedby="wheel-feedback wheel-instructions"></select><p id="wheel-feedback" role="status" aria-live="polite"></p><p class="muted" id="wheel-instructions">Match each intercepted letter on the outer ring to the inner letter directly beneath it. Enter both decoded words below, then select Unlock system.</p><details class="wheel-table"><summary>View letter pairs as text</summary><p id="wheel-pairs"></p></details></div></div><form id="decode"><label for="answer">Decoded access phrase</label><div class="input-row"><input id="answer" maxlength="150" autocomplete="off" placeholder="Enter both decoded words" required><button>Unlock system &rarr;</button></div></form>';
+    screen.innerHTML = '<span class="eyebrow">STAGE 01 // TARGET: 1 MINUTE</span><h2 id="screen-title" tabindex="-1">Crack the Code</h2><p>First, unlock the analyst workspace. Decode the intercepted access phrase using the encoder settings on the backup panel and the cipher wheel.</p><div class="cipher-message" id="cipher-message"></div><div class="backup-panel"><span class="eyebrow">BACKUP PANEL / ENCODER MEMORY</span><p>Encryption direction: FORWARD<br>Cipher key: count the cells marked FAILED. Cell numbers are identifiers, not the key.</p><div id="backup-cells" class="backup-cells" role="group" aria-label="Backup cell status"></div></div><div class="cipher-layout"><svg id="wheel" viewBox="0 0 300 300" role="img" aria-label="Adjustable Caesar wheel: outer ring is encrypted; inner ring is decoded"></svg><div class="wheel-controls"><label for="wheel-shift">Wheel offset</label><select id="wheel-shift" aria-describedby="wheel-feedback wheel-instructions"></select><p id="wheel-feedback" role="status" aria-live="polite"></p><p class="muted" id="wheel-instructions">Match each intercepted letter on the outer ring to the inner letter directly beneath it. Enter both decoded words below, then select Unlock system.</p><details class="wheel-table"><summary>View letter pairs as text</summary><p id="wheel-pairs"></p></details></div></div><form id="decode"><label for="answer">Decoded access phrase</label><div class="input-row"><input id="answer" maxlength="150" autocomplete="off" placeholder="Enter both decoded words" required><button>Unlock system &rarr;</button></div></form>';
     document.querySelector('#cipher-message').textContent = state.cipher.message;
     const cells = document.querySelector('#backup-cells');
     for (let i = 0; i < 8; i++) {
@@ -206,7 +228,7 @@ function render() {
     buildWheel();
     document.querySelector('#decode').onsubmit = e => { e.preventDefault(); answer(1, document.querySelector('#answer').value); };
   } else if (state.stage === 2) {
-    screen.innerHTML = '<span class="eyebrow">STAGE 02 // TARGET: 2 MINUTES</span><h2 id="screen-title" tabindex="-1">The Corrupted AI</h2><p>The display says ALL CLEAR, but the grid is offline. Trace what changed the assistant behaviour and identify the attack and its source. Locate the recovery inventory before leaving.</p><p class="muted">Use <code>help</code> for command syntax. File names are case-sensitive.</p><div class="terminal-bar"><span>analyst@blackout</span><span>INVESTIGATION CONSOLE</span></div><pre id="output" role="log" aria-live="polite" aria-label="Terminal output"></pre><form id="terminal"><label for="command">Terminal command</label><div class="input-row"><input id="command" maxlength="150" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter command" required><button>Execute</button></div></form><p id="evidence" class="muted"></p><form id="diagnosis"><h3>Submit your diagnosis</h3><div class="plan-grid"><div><label for="threat">Attack type</label><select id="threat" required><option value="">Select attack</option><option value="credential-theft">Credential theft</option><option value="data-poisoning">Training data poisoning</option><option value="prompt-injection">Prompt injection</option><option value="denial-of-service">Denial of service</option></select></div><div><label for="source">Source file</label><select id="source" required><option value="">Select source</option><option>status.txt</option><option>recovery.txt</option><option>update.txt</option><option>incident.log</option></select></div></div><button>Verify diagnosis &rarr;</button></form>';
+    screen.innerHTML = '<span class="eyebrow">STAGE 02 // TARGET: 2 MINUTES</span><h2 id="screen-title" tabindex="-1">The Corrupted AI</h2><p>The display says ALL CLEAR, but the grid is offline. Trace what changed the assistant behaviour and identify the attack and its source. Locate the recovery inventory before leaving.</p><p class="muted">Start with <code>ls</code> to list files, then <code>cat incident.log</code> to read the timeline. Use <code>help</code> for command syntax. File names are case-sensitive.</p><div class="terminal-bar"><span>analyst@blackout</span><span>INVESTIGATION CONSOLE</span></div><pre id="output" role="log" aria-live="polite" aria-label="Terminal output"></pre><form id="terminal"><label for="command">Terminal command</label><div class="input-row"><input id="command" maxlength="150" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter command" required><button>Execute</button></div></form><p id="evidence" class="muted" role="status"></p><form id="diagnosis"><h3>Submit your diagnosis</h3><details class="attack-reference"><summary>Attack types explained</summary><p>Credential theft steals login secrets. Training data poisoning alters the examples used to train a model. Prompt injection puts instructions in an input to redirect an AI during use. Denial of service overwhelms a service so people cannot use it.</p></details><div class="plan-grid"><div><label for="threat">Attack type</label><select id="threat" required><option value="">Select attack</option><option value="credential-theft">Credential theft</option><option value="data-poisoning">Training data poisoning</option><option value="prompt-injection">Prompt injection</option><option value="denial-of-service">Denial of service</option></select></div><div><label for="source">Source file</label><select id="source" required><option value="">Select source</option><option>status.txt</option><option>recovery.txt</option><option>update.txt</option><option>incident.log</option></select></div></div><button>Verify diagnosis &rarr;</button></form>';
     document.querySelector('#output').textContent = terminalHistory;
     mountAiPanel();
     updateEvidence();
@@ -216,8 +238,10 @@ function render() {
       answer(2, document.querySelector('#threat').value + ':' + document.querySelector('#source').value);
     };
   } else if (state.stage === 3) {
-    screen.innerHTML = '<span class="eyebrow">STAGE 03 // TARGET: 1 MINUTE</span><h2 id="screen-title" tabindex="-1">Emergency Override</h2><p>Build a recovery plan using the incident timeline and backup inventory. All three settings must be safe before power can return.</p><details class="evidence-card"><summary>Review collected terminal evidence</summary><pre id="collected-evidence"></pre></details><form id="recovery"><div class="plan-grid"><div><label for="containment">01 / Quarantine source</label><select id="containment" required><option value="">Select file</option><option>incident.log</option><option>update.txt</option><option>recovery.txt</option><option>status.txt</option></select></div><div><label for="snapshot">02 / Restore configuration</label><select id="snapshot" required><option value="">Select snapshot</option><option value="a">Snapshot A</option><option value="b">Snapshot B</option><option value="c">Snapshot C</option></select></div><div><label for="safety">03 / Final safety action</label><select id="safety" required><option value="">Select action</option><option value="clear-logs">Clear incident history</option><option value="keep-muted">Keep alerts muted</option><option value="enable-alerts">Re-enable safety alerts</option><option value="trust-imports">Trust all maintenance imports</option></select></div></div><button>Execute emergency override &rarr;</button></form>';
-    document.querySelector('#collected-evidence').textContent = terminalHistory;
+    screen.innerHTML = '<span class="eyebrow">STAGE 03 // TARGET: 1 MINUTE</span><h2 id="screen-title" tabindex="-1">Emergency Override</h2><p>Diagnosis verified. Contain the imported source, choose a clean backup from before the incident, and restore safety monitoring. Use your collected evidence below to build the recovery plan.</p><details class="evidence-card" open><summary>Review collected evidence</summary><pre id="collected-evidence"></pre></details><form id="recovery"><div class="plan-grid"><div><label for="containment">01 / Quarantine source</label><select id="containment" required><option value="">Select file</option><option>incident.log</option><option>update.txt</option><option>recovery.txt</option><option>status.txt</option></select></div><div><label for="snapshot">02 / Restore configuration</label><select id="snapshot" required><option value="">Select snapshot</option><option value="a">Snapshot A</option><option value="b">Snapshot B</option><option value="c">Snapshot C</option></select></div><div><label for="safety">03 / Final safety action</label><select id="safety" required><option value="">Select action</option><option value="clear-logs">Clear incident history</option><option value="keep-muted">Keep alerts muted</option><option value="enable-alerts">Re-enable safety alerts</option><option value="trust-imports">Trust all maintenance imports</option></select></div></div><button>Execute emergency override &rarr;</button></form>';
+    document.querySelector('#collected-evidence').textContent = state.collectedEvidence?.length
+      ? state.collectedEvidence.map(item => item.file + '\n' + item.content).join('\n\n')
+      : terminalHistory;
     document.querySelector('#recovery').onsubmit = e => {
       e.preventDefault();
       answer(3, document.querySelector('#containment').value + ':' + document.querySelector('#snapshot').value + ':' + document.querySelector('#safety').value);
@@ -256,7 +280,7 @@ function updateHintPanel() {
   const hint = hintHistory[state.stage];
   const button = document.querySelector('#hint-button');
   const level = hint?.level || 0;
-  button.disabled = level >= 3;
+  button.disabled = level >= 3 || busy || state.expired || state.finished;
   button.textContent = level >= 3 ? 'All hints revealed' : level === 2 ? 'Show walkthrough (3/3)' : 'Reveal hint (' + (level + 1) + '/3)';
   document.querySelector('#hint-text').textContent = hint ? 'HINT ' + level + ' / 3: ' + hint.message : '';
 }
@@ -340,7 +364,12 @@ async function askController(payload, originalInput) {
   }
 }
 function updateEvidence() {
-  document.querySelector('#evidence').textContent = 'Files examined: ' + state.readFiles.length + ' / ' + (state.evidenceReady ? 'Incident trace and recovery inventory collected.' : 'Investigation in progress.');
+  const evidence = document.querySelector('#evidence');
+  if (!evidence) return;
+  const required = state.requiredFiles || ['incident.log', 'update.txt', 'recovery.txt'];
+  const read = state.readFiles || [];
+  const collected = required.filter(file => read.includes(file)).length;
+  evidence.textContent = 'Required evidence: ' + collected + ' / ' + required.length + '. ' + (state.evidenceReady ? 'Investigation complete. Submit your diagnosis below.' : 'Read the incident timeline, inspect its imported source, then collect the recovery inventory.');
 }
 async function execute(e) {
   e.preventDefault();
@@ -355,7 +384,6 @@ async function execute(e) {
   try {
     const d = await api('/terminal', { command });
     if (currentSession !== sessionId) return;
-    terminalHistory += '\n\nanalyst@blackout:~$ ' + command + '\n' + d.output;
     update(d.state);
     if (!state.expired && state.stage === 2 && !state.finished) {
       const output = document.querySelector('#output');
@@ -366,7 +394,7 @@ async function execute(e) {
       updateEvidence();
       formMessage(form, '');
     }
-  } catch (e) { if (currentSession === sessionId) formMessage(form, e.message); }
+  } catch (e) { if (currentSession === sessionId) { if (e.data?.state) update(e.data.state); formMessage(form, e.message); } }
   finally { busy = false; loading(form, false); }
 }
 function buildWheel() {

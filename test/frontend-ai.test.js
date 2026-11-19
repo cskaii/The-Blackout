@@ -183,3 +183,55 @@ test('late AI replies cannot overwrite a new team', async () => {
   assert.equal(vm.runInContext('state.ai.history.length', context), 0);
   assert.equal(vm.runInContext('aiBusy', context), false);
 });
+
+test('delayed snapshots preserve elapsed time including fractional seconds', () => {
+  const { context, elements } = frontend();
+  vm.runInContext(`
+    state.remainingSeconds = 10; state.readFiles = []; state.revealedHints = {};
+    stateReceivedAt = Date.now() - 6500;
+    const previousDeadline = stateReceivedAt + state.remainingSeconds * 1000;
+    update({ ...state, remainingSeconds: 9 });
+    if (stateReceivedAt + state.remainingSeconds * 1000 !== previousDeadline) throw Error('Deadline moved');
+  `, context);
+  assert.equal(elements.get('#timer').textContent, '00:04');
+});
+
+test('server-confirmed victory replaces a local timeout when the final response arrives late', () => {
+  const { context, elements } = frontend();
+  vm.runInContext(`
+    state.stage = 3; state.expired = true; state.remainingSeconds = 0; state.readFiles = [];
+    let renders = 0; render = () => { renders++; };
+    update({ ...state, finished: true, expired: false, remainingSeconds: 1 });
+  `, context);
+  assert.equal(vm.runInContext('state.finished', context), true);
+  assert.equal(vm.runInContext('renders', context), 1);
+  assert.equal(elements.get('#stage').textContent, 'MISSION COMPLETE');
+});
+
+test('polling recovers evidence and terminal output after a lost command response', () => {
+  const { context, elements } = frontend();
+  const output = { textContent: '', scrollHeight: 100 };
+  const evidence = { textContent: '' };
+  elements.set('#output', output);
+  elements.set('#evidence', evidence);
+  vm.runInContext(`
+    state.remainingSeconds = 80; state.readFiles = []; state.revealedHints = {};
+    update({ ...state, readFiles: ['incident.log', 'status.txt'],
+      requiredFiles: ['incident.log', 'update.txt', 'recovery.txt'], evidenceReady: false,
+      terminalHistory: [{ command: 'cat incident.log', output: 'Recovered timeline' }] });
+  `, context);
+  assert.match(output.textContent, /cat incident.log\nRecovered timeline/);
+  assert.equal(output.scrollTop, 100);
+  assert.match(evidence.textContent, /1 \/ 3/);
+});
+
+test('older revision cannot erase a terminal command or reintroduce pending AI', () => {
+  const { context } = frontend();
+  vm.runInContext(`
+    state.revision = 5; state.remainingSeconds = 80; state.readFiles = []; state.revealedHints = {};
+    state.terminalHistory = [{ command: 'ls', output: 'Files' }];
+    update({ ...state, revision: 4, terminalHistory: [], ai: { ...state.ai, pending: true } });
+  `, context);
+  assert.equal(vm.runInContext('state.terminalHistory.length', context), 1);
+  assert.equal(vm.runInContext('state.ai.pending', context), false);
+});
