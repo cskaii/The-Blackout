@@ -47,7 +47,9 @@ The terminal retains the last 50 commands. Collected file evidence and pins pers
 
 Set `GEMINI_API_KEY` privately in `.env` or the backend host. Configure `GEMINI_MODEL` as needed. The default is `gemini-3.1-flash-lite`; supported request timeout is 100–60000 ms. The AI uses the team's incident time and job identifier and does not decide puzzle answers. Missing keys, provider errors or timeouts use scripted dialogue consistent with that incident. Backend tests mock provider requests; they do not verify a live key.
 
-## Separate hosting
+Set `GEMINI_API_KEY` privately in `.env` or the backend host. Configure `GEMINI_MODEL` as needed. The default is `gemini-3.1-flash-lite`; supported request timeout is 100–60000 ms. The AI uses the team's incident time and job identifier and does not decide puzzle answers. Missing keys, provider errors or timeouts use scripted dialogue consistent with that incident. Backend tests mock provider requests; they do not verify a live key.
+
+The Express server serves the frontend locally. For Vercel frontend + Render backend:
 
 The Express server serves the frontend locally. For Vercel frontend + Render backend:
 
