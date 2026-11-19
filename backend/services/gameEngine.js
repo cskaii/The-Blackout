@@ -5,7 +5,9 @@ const { createIncident, filesFor, evidenceFor, supportFor, monitoringFor, replay
 const sessions = new Map();
 const DURATION_MS = 5 * 60 * 1000;
 const PASSPHRASES = ['NIGHT SHIFT', 'LAST LIGHT', 'EYES OPEN', 'BACKUP ACCESS', 'SILENT ALARM', 'DARK SIGNAL'];
+const OFFSETS = [3, 4, 5, 6, 7];
 let previousPhrase;
+let previousOffset;
 function encrypt(text, shift) {
   return text.replace(/[A-Z]/g, letter => String.fromCharCode(65 + (letter.charCodeAt(0) - 65 + shift) % 26));
 }
@@ -15,14 +17,17 @@ function createSession(options = {}) {
   const choices = PASSPHRASES.filter(p => p !== previousPhrase);
   const passphrase = choices[crypto.randomInt(choices.length)];
   previousPhrase = passphrase;
+  const offsetChoices = OFFSETS.filter(offset => offset !== previousOffset);
+  const shift = offsetChoices[crypto.randomInt(offsetChoices.length)];
   const id = crypto.randomUUID();
   sessions.set(id, {
     stage: 1, revision: 0, mode: options.mode === 'practice' ? 'practice' : 'event',
-    passphrase, incident: createIncident(), shift: crypto.randomInt(3, 8), startedAt: Date.now(), lastSeenAt: Date.now(),
+    passphrase, incident: createIncident(), shift, startedAt: Date.now(), lastSeenAt: Date.now(),
     finished: false, readFiles: [], pins: [], selectedRecord: null, recovery: { step: 0, source: null, snapshot: null },
     hints: { 1: 0, 2: 0, 3: 0 }, hintMessages: {}, terminalHistory: [],
     aiHistory: [], aiRequests: 0, aiPending: false, aiLastAt: 0
   });
+  previousOffset = shift;
   return id;
 }
 function getSession(id) {

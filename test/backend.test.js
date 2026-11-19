@@ -297,6 +297,24 @@ test('incident variations keep telemetry, file evidence, hints, AI and valid bac
   assert.ok(sources.size > 1); assert.ok(times.size > 1); assert.ok(backups.size > 1);
 });
 
+test('new missions never repeat the previous offset and existing missions keep their cipher', () => {
+  let previous;
+  let firstId, firstCipher;
+  for (let i = 0; i < 20; i++) {
+    const id = game.createSession();
+    const s = game.getSession(id);
+    const cipher = game.publicState(s).cipher;
+    assert.ok([3, 4, 5, 6, 7].includes(cipher.failedCells));
+    assert.notEqual(cipher.failedCells, previous);
+    assert.equal(game.encrypt(cipher.message, 26 - cipher.failedCells), s.passphrase);
+    game.hint(s);
+    assert.match(game.hint(s).message, new RegExp('wheel to ' + cipher.failedCells));
+    if (!firstId) { firstId = id; firstCipher = cipher; }
+    previous = cipher.failedCells;
+  }
+  assert.deepEqual(game.publicState(game.getSession(firstId)).cipher, firstCipher);
+});
+
 test('session restore retains evidence after transcript rollover and next team starts clean', async () => {
   const app = createApp(); const {id,s} = await session(app,2);
   await investigate(app,id,s);
