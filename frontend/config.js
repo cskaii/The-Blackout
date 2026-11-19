@@ -1,2 +1,3 @@
-// Public configuration only. The Vercel build replaces this with BACKEND_URL.
+// Local development uses the same server for the page and API.
+// The Vercel build replaces this with the public BACKEND_URL setting.
 globalThis.BLACKOUT_CONFIG = { apiBaseUrl: '' };

@@ -3,18 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#090d12">
-  <meta name="description" content="Investigate a compromised AI, build an evidence chain and restore the grid.">
-  <title>The Blackout | Incident Control Room</title>
+  <meta name="theme-color" content="#0b0708">
+  <meta name="description" content="The Blackout: restore power in a five-minute cybersecurity escape room.">
+  <title>The Blackout | Cybersecurity Escape Room</title>
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="mission.css">
+  <link rel="stylesheet" href="blackout-theme.css">
 </head>
 <body>
+  <div class="caution-backdrop" aria-hidden="true">
+    <div class="caution-tape caution-tape-top"><span>CAUTION // DO NOT ENTER // CAUTION // DO NOT ENTER // CAUTION // DO NOT ENTER // CAUTION // DO NOT ENTER</span></div>
+    <div class="caution-tape caution-tape-bottom"><span>RESTRICTED AREA // KEEP OUT // RESTRICTED AREA // KEEP OUT // RESTRICTED AREA // KEEP OUT // RESTRICTED AREA</span></div>
+  </div>
   <main>
     <header>
-      <div class="masthead"><span class="eyebrow">OPEN HOUSE // INCIDENT CONTROL ROOM</span><div class="header-tools"><button id="sound-toggle" type="button" aria-pressed="false">Sound: off</button><span class="signal" id="power-status">POWER OFFLINE</span></div></div>
+      <div class="masthead">
+        <div class="club-brand">
+          <img class="club-logo" src="assets/nyp-infosec-haunted.png" alt="NYP Infosec: distressed orange runner carrying a glowing purple flag" width="1254" height="1254">
+          <div class="club-caption"><span class="club-name">NYP INFOSEC</span><span class="eyebrow">OPEN HOUSE<br>CYBERSECURITY ESCAPE ROOM</span></div>
+        </div>
+        <span class="signal" id="power-status">POWER OFFLINE</span>
+      </div>
+      <p class="incident-tag">CONTROL ROOM / GRID OFFLINE</p>
       <h1>THE <span>BLACKOUT</span></h1>
-      <p>The AI says everything is fine. The lights tell a different story.</p>
+      <p>The lights are out. The control panel says everything is fine.</p>
     </header>
     <div class="status" aria-label="Mission status">
       <div><span class="eyebrow">EMERGENCY RESTORATION</span><p id="stage">AWAITING RESPONSE TEAM</p><span id="connection-status" role="status"></span></div>
@@ -25,43 +36,42 @@
       <li data-stage="2"><span>02</span> The Corrupted AI <small>CONNECT THE EVIDENCE</small></li>
       <li data-stage="3"><span>03</span> Emergency Override <small>RECOVER &amp; VERIFY</small></li>
     </ol>
-    <section id="monitoring-dashboard" class="dashboard" aria-labelledby="monitoring-title" hidden>
-      <div class="panel-heading"><div><span class="eyebrow">INDEPENDENT SENSOR FEED</span><h2 id="monitoring-title" tabindex="-1">Monitoring dashboard</h2></div><span id="monitoring-phase" class="phase-tag"></span></div>
-      <p class="muted">Simulated mission records. Compare independent sensors with the AI report.</p>
-      <dl class="metric-grid">
-        <div><dt>AI report</dt><dd id="monitoring-report"></dd><small>Controller claim</small></div>
+    <section id="monitoring-dashboard" class="monitoring-dashboard" aria-labelledby="monitoring-title" hidden>
+      <div class="monitoring-heading"><div><span class="eyebrow">INDEPENDENT SENSOR FEED</span><h2 id="monitoring-title" tabindex="-1">Monitoring dashboard</h2></div><span id="monitoring-phase" class="monitoring-phase"></span></div>
+      <p class="muted">Simulated grid records. Compare the controller report with physical readings; new recovery readings appear after a successful override.</p>
+      <dl class="monitoring-metrics">
+        <div><dt>AI controller report</dt><dd id="monitoring-report"></dd><small>Controller channel</small></div>
         <div><dt>Physical grid</dt><dd id="monitoring-grid"></dd><small>Independent sensor</small></div>
-        <div><dt>Supply voltage</dt><dd id="monitoring-voltage"></dd><small>Normal: 230 V</small></div>
+        <div><dt>Supply voltage</dt><dd id="monitoring-voltage"></dd><small>Normal supply: 230 V</small></div>
         <div><dt>Safety alerts</dt><dd id="monitoring-alerts"></dd><small>Alarm output monitor</small></div>
       </dl>
-      <p id="monitoring-comparison" class="callout" role="status"></p>
-      <p id="monitoring-source" class="muted"></p>
-      <svg class="voltage-chart" viewBox="0 0 600 150" role="img" aria-labelledby="chart-title">
-        <title id="chart-title">Supply voltage by recorded event. Exact times and values are in the table below.</title>
-        <path d="M60 20H580 M60 110H580" class="chart-grid" />
-        <text x="4" y="25">230 V</text><text x="18" y="115">0 V</text>
-        <polyline id="voltage-line" points="" />
-        <text x="60" y="140" id="chart-first"></text><text x="580" y="140" text-anchor="end" id="chart-last"></text>
-      </svg>
-      <div class="table-scroll" tabindex="0" role="region" aria-label="Sensor records and anomaly selection">
-        <table><caption id="record-instructions">Select the FIRST record where voltage and the AI report conflict. Chart points are spaced by record.</caption><thead><tr><th scope="col">Record</th><th scope="col">Voltage</th><th scope="col">Grid</th><th scope="col">Alerts</th><th scope="col">AI report</th><th scope="col">Investigation</th></tr></thead><tbody id="sensor-records"></tbody></table>
-      </div>
+      <p id="monitoring-comparison" class="monitoring-comparison" role="status"></p>
+      <details class="monitoring-records" open>
+        <summary>Voltage trend and recorded readings</summary>
+        <svg class="monitoring-chart" viewBox="0 0 600 160" role="img" aria-labelledby="monitoring-chart-title">
+          <title id="monitoring-chart-title">Recorded supply voltage; exact readings are listed in the table below.</title>
+          <path d="M60 25H580 M60 120H580" class="monitoring-chart-grid" />
+          <text x="5" y="30">230 V</text><text x="20" y="125">0 V</text>
+          <polyline id="monitoring-trend" points="" />
+          <text x="60" y="150">02:10</text><text x="580" y="150" text-anchor="end" id="monitoring-chart-end"></text>
+        </svg>
+        <div class="monitoring-table-wrap" tabindex="0" role="region" aria-label="Recorded grid readings">
+          <table class="monitoring-table"><caption>Recorded sensor and controller readings. Chart points are equally spaced by record.</caption><thead><tr><th scope="col">Record</th><th scope="col">Voltage</th><th scope="col">Grid</th><th scope="col">Alerts</th><th scope="col">AI report</th></tr></thead><tbody id="monitoring-readings"></tbody></table>
+        </div>
+      </details>
+    </section>
+    <section id="screen" aria-labelledby="screen-title">
+      <span class="eyebrow">OPERATOR HANDOVER / 02:15</span>
+      <h2 id="screen-title" tabindex="-1">No power. No alarms.</h2>
+      <p>At 02:14, the AI controller processed a maintenance file. A minute later, the grid was offline. No alarm sounded. The operator display still read ALL CLEAR.</p>
+      <p>Your team has reached the backup console. Decode its access phrase to unlock the monitoring dashboard and analyst workspace. Compare the grid readings with the AI report, trace what happened in the files, and restore power before the system locks down.</p>
+      <p class="muted">You have five minutes. The timer starts when you begin. Hints are available at each stage.</p>
+      <button id="start">Begin mission <span aria-hidden="true">&rarr;</span></button>
     </section>
     <p id="notice" role="status" aria-live="polite"></p>
-    <section id="screen" aria-labelledby="screen-title">
-      <span class="eyebrow">INCIDENT BRIEF // ALL EXPERIENCE LEVELS</span>
-      <h2 id="screen-title" tabindex="-1">No power. No alarms.</h2>
-      <p>An imported maintenance attachment redirected the AI controller. The grid is offline, but the display still reports ALL CLEAR.</p>
-      <p>Unlock the monitoring dashboard, find the first suspicious reading, connect it to file evidence, then recover the grid one safe step at a time.</p>
-      <label for="mission-mode">Choose your mission</label>
-      <select id="mission-mode"><option value="event">Event mode — shared five-minute countdown</option><option value="practice">Practice mode — no countdown</option></select>
-      <p class="muted">Three stages. Hints and file shortcuts are available throughout investigation. Each mission varies its incident time, imported source and backup inventory. Sound is optional and starts off.</p>
-      <button id="start">Begin mission &rarr;</button>
-    </section>
-    <footer><span>THE BLACKOUT / OPEN HOUSE</span><span>OBSERVE / INVESTIGATE / VERIFY</span></footer>
+    <footer><span>NYP INFOSEC / OPEN HOUSE</span><span>A CYBERSECURITY ESCAPE ROOM</span></footer>
   </main>
   <script src="config.js"></script>
-  <script src="sound.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

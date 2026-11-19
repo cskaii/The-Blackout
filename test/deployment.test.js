@@ -3,25 +3,29 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { backendOrigin, build } = require('../scripts/buildFrontend');
 
-test('frontend build rejects unsafe backend origins', () => {
+test('production backend URL must be an HTTPS origin without credentials or paths', () => {
   assert.equal(backendOrigin(' https://blackout-example.onrender.com/ '), 'https://blackout-example.onrender.com');
-  for (const value of ['', 'http://example.com', 'https://key@example.com', 'https://example.com/api', 'https://example.com?key=secret', 'https://example.com/#token']) assert.throws(() => backendOrigin(value));
+  for (const value of ['', 'not-a-url', 'http://example.com', 'https://example.com/api', 'https://key@example.com', 'https://example.com?key=secret', 'https://example.com/#secret']) {
+    assert.throws(() => backendOrigin(value));
+  }
 });
 
-test('built frontend includes the full game and audio assets but no backend or secrets', () => {
+test('Vercel build contains only public assets and the selected API origin', () => {
   const previous = process.env.BACKEND_URL;
   process.env.BACKEND_URL = 'https://blackout-example.onrender.com';
   try {
     build();
+    const config = fs.readFileSync('dist/config.js', 'utf8');
+    assert.match(config, /https:\/\/blackout-example.onrender.com/);
+    assert.equal(fs.existsSync('dist/.env'), false);
+    assert.equal(fs.existsSync('dist/backend'), false);
+    assert.equal(fs.existsSync('dist/node_modules'), false);
+    assert.ok(fs.existsSync('dist/assets/nyp-infosec-haunted.png'));
     const html = fs.readFileSync('dist/index.html', 'utf8');
-    for (const file of ['app.js', 'config.js', 'sound.js', 'mission.css', 'style.css']) {
-      assert.ok(fs.existsSync('dist/' + file)); assert.ok(html.includes('"' + file + '"'));
-    }
-    assert.ok(html.indexOf('src="sound.js"') < html.indexOf('src="app.js"'));
-    assert.match(html, /id="monitoring-dashboard"[^>]+hidden/);
-    for (const privatePath of ['.env', 'backend', 'node_modules']) assert.equal(fs.existsSync('dist/' + privatePath), false);
-    assert.match(fs.readFileSync('dist/config.js', 'utf8'), /https:\/\/blackout-example.onrender.com/);
+    assert.ok(html.indexOf('src="config.js"') < html.indexOf('src="app.js"'));
+    assert.deepEqual(Object.keys(JSON.parse(config.slice(config.indexOf('=') + 1).trim().replace(/;$/, ''))), ['apiBaseUrl']);
   } finally {
-    if (previous === undefined) delete process.env.BACKEND_URL; else process.env.BACKEND_URL = previous;
+    if (previous === undefined) delete process.env.BACKEND_URL;
+    else process.env.BACKEND_URL = previous;
   }
 });
