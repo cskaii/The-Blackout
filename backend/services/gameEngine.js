@@ -1,104 +1,127 @@
 const crypto = require('node:crypto');
 const config = require('../config');
 const { QUESTIONS } = require('./aiService');
-const { run } = require('./virtualLinux');
-const { monitoringState } = require('./monitoring');
+const { createIncident, filesFor, evidenceFor, supportFor, monitoringFor, replayFor } = require('./incident');
 const sessions = new Map();
 const DURATION_MS = 5 * 60 * 1000;
-const REQUIRED_FILES = ['incident.log', 'update.txt', 'recovery.txt'];
 const PASSPHRASES = ['NIGHT SHIFT', 'LAST LIGHT', 'EYES OPEN', 'BACKUP ACCESS', 'SILENT ALARM', 'DARK SIGNAL'];
-let previousPhrase = null;
+let previousPhrase;
 function encrypt(text, shift) {
   return text.replace(/[A-Z]/g, letter => String.fromCharCode(65 + (letter.charCodeAt(0) - 65 + shift) % 26));
 }
-function createSession() {
+function createSession(options = {}) {
   cleanupSessions();
   if (sessions.size >= 1000) throw new Error('Session capacity reached');
-  const id = crypto.randomUUID();
-  const choices = PASSPHRASES.filter(phrase => phrase !== previousPhrase);
+  const choices = PASSPHRASES.filter(p => p !== previousPhrase);
   const passphrase = choices[crypto.randomInt(choices.length)];
   previousPhrase = passphrase;
+  const id = crypto.randomUUID();
   sessions.set(id, {
-    stage: 1, revision: 0, passphrase, shift: crypto.randomInt(3, 8), startedAt: Date.now(),
-    finished: false, readFiles: [], hints: { 1: 0, 2: 0, 3: 0 },
-    hintMessages: {}, terminalHistory: [], aiHistory: [], aiRequests: 0, aiPending: false, aiLastAt: 0
+    stage: 1, revision: 0, mode: options.mode === 'practice' ? 'practice' : 'event',
+    passphrase, incident: createIncident(), shift: crypto.randomInt(3, 8), startedAt: Date.now(), lastSeenAt: Date.now(),
+    finished: false, readFiles: [], pins: [], selectedRecord: null, recovery: { step: 0, source: null, snapshot: null },
+    hints: { 1: 0, 2: 0, 3: 0 }, hintMessages: {}, terminalHistory: [],
+    aiHistory: [], aiRequests: 0, aiPending: false, aiLastAt: 0
   });
   return id;
 }
-function getSession(id) { return sessions.get(id); }
+function getSession(id) {
+  const s = sessions.get(id);
+  if (s) s.lastSeenAt = Date.now();
+  return s;
+}
+function expired(s) { return s.mode !== 'practice' && !s.finished && Date.now() - s.startedAt >= DURATION_MS; }
+function valid(s) { return Boolean(s && !s.finished && !expired(s)); }
+function requiredFiles(s) { return ['incident.log', s.incident.source, 'recovery.txt']; }
 function publicState(s) {
   const elapsed = (s.finishedAt ?? Date.now()) - s.startedAt;
+  const files = filesFor(s.incident);
   return {
-    stage: s.stage,
-    revision: s.revision,
-    remainingSeconds: Math.max(0, Math.ceil((DURATION_MS - elapsed) / 1000)),
-    finished: s.finished,
-    expired: !s.finished && elapsed >= DURATION_MS,
-    monitoring: monitoringState(s, !s.finished && elapsed >= DURATION_MS),
+    stage: s.stage, revision: s.revision, mode: s.mode,
+    remainingSeconds: s.mode === 'practice' ? null : Math.max(0, Math.ceil((DURATION_MS - elapsed) / 1000)),
+    elapsedSeconds: Math.floor(elapsed / 1000), finished: s.finished, expired: expired(s),
     readFiles: [...s.readFiles],
-    requiredFiles: [...REQUIRED_FILES],
-    collectedEvidence: s.readFiles.map(file => ({ file, content: run('cat ' + file) })),
-    evidenceReady: REQUIRED_FILES.every(file => s.readFiles.includes(file)),
+    fileNames: s.stage >= 2 ? Object.keys(files) : [],
+    collectedEvidence: s.readFiles.map(file => ({ file, content: files[file] })),
+    evidenceReady: requiredFiles(s).every(file => s.readFiles.includes(file)),
+    evidence: { selectedRecord: s.selectedRecord, pins: [...s.pins], cards: s.stage >= 2 ? evidenceFor(s) : [] },
+    recovery: { ...s.recovery },
+    monitoring: monitoringFor(s, expired(s)), replay: replayFor(s),
     cipher: { message: encrypt(s.passphrase, s.shift), failedCells: s.shift },
     hintsUsed: Object.values(s.hints).reduce((sum, count) => sum + count, 0),
     revealedHints: { ...s.hintMessages },
     terminalHistory: s.terminalHistory.map(turn => ({ ...turn })),
-    ai: {
-      configured: Boolean(config.apiKey), questions: QUESTIONS,
-      remainingRequests: Math.max(0, config.sessionLimit - s.aiRequests),
-      pending: s.aiPending, history: s.aiHistory.map(turn => ({ ...turn }))
-    }
+    ai: { configured: Boolean(config.apiKey), questions: QUESTIONS, remainingRequests: Math.max(0, config.sessionLimit - s.aiRequests), pending: s.aiPending, history: s.aiHistory.map(turn => ({ ...turn })) }
   };
 }
-function valid(s) { return Boolean(s && !s.finished && Date.now() - s.startedAt < DURATION_MS); }
-function answer(s, stage, value) {
-  const result = (ok, message) => ({ ok, message, state: publicState(s) });
-  if (!valid(s)) return result(false, 'Mission ended. Start a new mission to try again.');
-  if (s.stage !== stage) return result(false, 'Complete the current stage first.');
-  if (stage === 2 && !publicState(s).evidenceReady) {
-    return result(false, 'Evidence incomplete. Trace the controller event, inspect its source and locate the recovery inventory.');
-  }
+function result(s, ok, message) { return { ok, message, state: publicState(s) }; }
+function answer(s, stage, value, evidence) {
+  if (!valid(s)) return result(s, false, 'Mission ended. Start a new mission to try again.');
+  if (s.stage !== stage) return result(s, false, 'Complete the current stage first.');
   const normalized = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-  const correct = stage === 1 ? normalized === s.passphrase.toLowerCase()
-    : stage === 2 ? normalized === 'prompt-injection:update.txt'
-    : stage === 3 ? normalized === 'update.txt:b:enable-alerts' : false;
-  if (!correct) return result(false, 'That combination does not match the evidence. Recheck the clues or request a hint.');
-  if (stage === 3) {
-    s.finished = true;
-    s.finishedAt = Date.now();
-  } else s.stage++;
+  if (stage === 1) {
+    if (normalized !== s.passphrase.toLowerCase()) return result(s, false, 'The phrase does not unlock the console. Recheck the wheel or use a hint.');
+    s.stage = 2; s.revision++;
+    return result(s, true, 'Access granted. Monitoring dashboard unlocked. Find the first conflicting reading.');
+  }
+  if (stage === 3) return result(s, false, 'Complete quarantine, restore and verification in order using the recovery controls.');
+  const support = supportFor(s);
+  const supported = Array.isArray(evidence) && evidence.length === 3 && new Set(evidence).size === 3 && support.every(id => evidence.includes(id) && s.pins.includes(id));
+  if (!publicState(s).evidenceReady || !s.selectedRecord || !supported) return result(s, false, 'Build a complete evidence chain: the first conflicting sensor record, the import log entry and the malicious instruction. Read the recovery inventory too.');
+  if (normalized !== 'prompt-injection:' + s.incident.source) return result(s, false, 'Diagnosis does not match your evidence. Recheck the attack and source.');
+  s.stage = 3; s.revision++;
+  return result(s, true, 'Diagnosis verified. Quarantine the source before restoring power.');
+}
+function evidence(s, action, id) {
+  if (!valid(s) || s.stage !== 2) return result(s, false, 'Evidence controls are available during active investigation only.');
+  const card = evidenceFor(s).find(card => card.id === id);
+  if (!card) return result(s, false, 'Read that file before pinning its evidence.');
+  if (action === 'record') {
+    if (id !== 'sensor:record-1') return result(s, false, 'This is not the first contradiction. Compare voltage and the AI report across the records.');
+    s.selectedRecord = id;
+    if (!s.pins.includes(id)) s.pins.push(id);
+  } else if (action === 'pin' && card.kind !== 'telemetry') {
+    if (!s.pins.includes(id)) s.pins.push(id);
+  } else if (action === 'unpin') {
+    s.pins = s.pins.filter(pin => pin !== id);
+    if (id === s.selectedRecord) s.selectedRecord = null;
+  } else return result(s, false, 'Choose a sensor record on the dashboard, or pin an examined file excerpt.');
   s.revision++;
-  return result(true, s.finished ? 'Power restored. Mission complete!' : 'Verified. Next stage unlocked.');
+  return result(s, true, action === 'record' ? 'First contradiction verified and pinned. Trace what was imported at that time.' : action === 'unpin' ? 'Evidence removed from board.' : 'Evidence pinned. Connect it to the sensor reading in your diagnosis.');
+}
+function recover(s, action, target) {
+  if (!valid(s) || s.stage !== 3) return result(s, false, 'Recovery controls are available during active Stage 3 only.');
+  const expected = ['quarantine', 'restore', 'verify'][s.recovery.step];
+  if (action !== expected) return result(s, false, 'Follow the recovery order: quarantine, restore, then verify monitoring.');
+  const correct = action === 'quarantine' ? target === s.incident.source : action === 'restore' ? target === s.incident.safeSnapshot : target === 'enable-alerts';
+  if (!correct) return result(s, false, 'That choice is not safe. Compare the incident source, backup time and integrity, or safety requirement.');
+  if (action === 'quarantine') s.recovery.source = target;
+  if (action === 'restore') s.recovery.snapshot = target;
+  s.recovery.step++;
+  if (action === 'verify') { s.finished = true; s.finishedAt = Date.now(); }
+  s.revision++;
+  return result(s, true, action === 'quarantine' ? 'Source quarantined. Grid remains offline. Choose a clean pre-incident snapshot.' : action === 'restore' ? 'Clean configuration restored: 230 V. Alerts remain muted. Re-enable and verify monitoring.' : 'Power and safety monitoring verified. Mission complete!');
 }
 function hint(s) {
-  if (!valid(s)) return { ok: false, message: 'Mission ended.', state: publicState(s) };
-  const shift = s.shift;
+  if (!valid(s)) return result(s, false, 'Mission ended.');
+  const p = s.incident;
   const hints = {
-    1: [
-      'The dark cells on the backup panel give the key. Encryption moved forward; decoding must reverse it.',
-      'There are ' + shift + ' failed cells. Set the wheel to ' + shift + ' and read each outer letter as the inner letter. ' + encrypt(s.passphrase[0], shift) + ' becomes ' + s.passphrase[0] + '.',
-      'Walkthrough: set the wheel to ' + shift + ', then decode both words. The password is ' + s.passphrase + '.'
-    ],
-    2: [
-      'Use ls, then cat incident.log. Follow the import entry rather than the harmless power-status report.',
-      'Read update.txt and recovery.txt. Ask which file tells the assistant to ignore rules rather than simply report measurements.',
-      'Walkthrough: read incident.log, update.txt and recovery.txt. Submit Prompt injection with update.txt as the source.'
-    ],
-    3: [
-      'Stop the source of the attack before restoring. Compare backup times and integrity checks with the incident time.',
-      'The incident began at 02:14. The latest backup was taken afterwards; the oldest failed its integrity check. Choose the remaining backup and restore monitoring.',
-      'Walkthrough: quarantine update.txt, restore Snapshot B, and re-enable safety alerts.'
-    ]
+    1: ['Count FAILED backup cells. Reverse the encoder shift to decode the phrase.', `Set the wheel to ${s.shift}. Match encrypted outer letters to decoded inner letters.`, `Walkthrough: offset ${s.shift}; access phrase ${s.passphrase}.`],
+    2: ['Find the first row where voltage drops but ALL CLEAR remains. Read incident.log and follow the import.', 'Pin the import entry and the attachment line that tells the AI to ignore its rules. Read recovery.txt before diagnosis.', `Walkthrough: select ${p.event}. Read incident.log, ${p.source} and recovery.txt. Pin incident.log line 2 and ${p.source} line 3. Submit Prompt injection, ${p.source}, and those three pinned evidence items.`],
+    3: ['Quarantine the imported source first. Use the newest intact backup from BEFORE the first conflicting record.', `The incident began at ${p.event}. Reject snapshots taken afterwards or marked FAIL, then enable monitoring.`, `Walkthrough: quarantine ${p.source}; restore Snapshot ${p.safeSnapshot.toUpperCase()} (${p.normal}, PASS); re-enable and verify safety alerts.`]
   };
-  const index = Math.min(s.hints[s.stage], 2);
-  s.hints[s.stage] = Math.min(index + 1, 3);
-  s.hintMessages[s.stage] = { level: index + 1, total: 3, message: hints[s.stage][index] };
+  const level = Math.min(s.hints[s.stage] + 1, 3);
+  s.hints[s.stage] = level;
+  s.hintMessages[s.stage] = { level, total: 3, message: hints[s.stage][level - 1] };
   s.revision++;
-  return { ok: true, level: index + 1, total: 3, message: hints[s.stage][index], state: publicState(s) };
+  return { ...result(s, true, hints[s.stage][level - 1]), level, total: 3 };
 }
 function cleanupSessions() {
-  const cutoff = Date.now() - 30 * 60 * 1000;
-  for (const [id, session] of sessions) if (session.startedAt < cutoff) sessions.delete(id);
+  const now = Date.now();
+  for (const [id, s] of sessions) {
+    const stale = s.mode === 'practice' && !s.finished ? now - s.lastSeenAt > 24 * 60 * 60 * 1000 : now - (s.finishedAt ?? s.startedAt) > 30 * 60 * 1000;
+    if (stale) sessions.delete(id);
+  }
 }
-setInterval(cleanupSessions, 60 * 1000).unref();
-module.exports = { createSession, getSession, publicState, valid, answer, hint, encrypt, DURATION_MS, cleanupSessions };
+setInterval(cleanupSessions, 60000).unref();
+module.exports = { createSession, getSession, publicState, valid, answer, hint, evidence, recover, encrypt, DURATION_MS, cleanupSessions };
