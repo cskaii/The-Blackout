@@ -36,7 +36,7 @@ function syncControls() {
 }
 function update(s) {
   if (state && (s.revision < state.revision || s.stage < state.stage || (state.finished && !s.finished) || (state.expired && !s.expired && !s.finished))) return;
-  const previous = state, changed = screenKey(s) !== screenKey(state);
+  const changed = screenKey(s) !== screenKey(state);
   if (!s.finished && s.mode === 'event') localDeadline = Math.min(localDeadline ?? Infinity, Date.now() + s.remainingSeconds * 1000);
   state = s;
   if (s.finished || s.expired) clearInterval(ticker);
@@ -52,8 +52,6 @@ function update(s) {
   syncClock(); syncMonitoring();
   if (changed) render();
   syncInvestigation(); syncHints(); syncControls();
-  globalThis.BLACKOUT_SOUND?.sync(Boolean(active() && !document.hidden));
-  if (previous && !previous.finished && s.finished) globalThis.BLACKOUT_SOUND?.restored();
 }
 function syncClock() {
   if (!state) return;
@@ -83,14 +81,13 @@ function resetSession() {
   document.querySelector('#clock-label').textContent = 'TIME REMAINING'; document.querySelector('#power-status').textContent = 'POWER OFFLINE';
   document.body.classList.remove('restored', 'urgent');
   document.querySelectorAll('[data-stage]').forEach(node => { node.classList.remove('active', 'complete'); node.removeAttribute('aria-current'); });
-  globalThis.BLACKOUT_SOUND?.sync(false); bindBrief(); notice.textContent = 'Previous mission unavailable. Begin a new mission.';
+  bindBrief(); notice.textContent = 'Previous mission unavailable. Begin a new mission.';
 }
 async function start() {
   if (busy) return;
   busy = true; const startButton = document.querySelector('#start, #again'); startButton.disabled = true;
-  const mode = document.querySelector('#mission-mode')?.value || 'event';
   try {
-    const d = await api('/start', { mode });
+    const d = await api('/start', { mode: 'event' });
     clearInterval(ticker); sessionId = d.sessionId;
     try { sessionStorage.setItem('blackout-session', sessionId); } catch {}
     state = null; localDeadline = null; wheelShift = 0; selectedEvidenceFile = ''; aiBusy = false; aiCooldownUntil = 0;
@@ -155,17 +152,13 @@ function render() {
   if (state.finished || state.expired) {
     screen.innerHTML = state.finished
       ? '<span class="eyebrow">INCIDENT CONTAINED</span><h2 id="screen-title" tabindex="-1">Power restored. Evidence verified.</h2><p>You connected sensor readings to an untrusted import, then quarantined, restored and verified the grid.</p><h3>Incident replay</h3><ol id="incident-replay" class="incident-replay"></ol><p id="hint-count" class="muted"></p>'
-      : '<span class="eyebrow">RESPONSE WINDOW CLOSED</span><h2 id="screen-title" tabindex="-1">System lockdown.</h2><p>The recovery window closed. Your last confirmed dashboard readings remain above. Try practice mode to explore the full investigation without a countdown.</p>';
+      : '<span class="eyebrow">RESPONSE WINDOW CLOSED</span><h2 id="screen-title" tabindex="-1">System lockdown.</h2><p>The recovery window closed. Your last confirmed dashboard readings remain above. Start a fresh mission and use the progressive hints if you need help.</p>';
     if (state.finished) {
       for (const step of state.replay) { const item = el('li'); item.append(el('span', step.time, 'eyebrow'), el('h3', step.title), el('p', step.text)); document.querySelector('#incident-replay').append(item); }
-      document.querySelector('#hint-count').textContent = 'Hints revealed: ' + state.hintsUsed + ' / 9. Mode: ' + state.mode + '.';
+      document.querySelector('#hint-count').textContent = 'Hints revealed: ' + state.hintsUsed + ' / 9.';
     }
-    const label = el('label', 'Next mission mode'); label.htmlFor = 'mission-mode';
-    const select = el('select'); select.id = 'mission-mode';
-    for (const [value, text] of [['event', 'Event — five minutes'], ['practice', 'Practice — untimed']]) { const option = el('option', text); option.value = value; select.append(option); }
-    select.value = state.mode;
     const again = button('Start a fresh mission →', start); delete again.dataset.missionAction; again.id = 'again';
-    screen.append(label, select, again);
+    screen.append(again);
   } else if (state.stage === 1) {
     screen.innerHTML = '<span class="eyebrow">STAGE 01 // UNLOCK ACCESS</span><h2 id="screen-title" tabindex="-1">Crack the Code</h2><p>The monitoring dashboard is locked. Decode the access phrase to enter the control room.</p><div class="cipher-message" id="cipher-message"></div><div class="backup-panel"><span class="eyebrow">BACKUP PANEL / ENCODER MEMORY</span><p>Encryption direction: FORWARD<br>Cipher key: count FAILED cells. Cell numbers identify cells; they are not the key.</p><div id="backup-cells" class="backup-cells" role="group" aria-label="Backup cell status"></div></div><div class="cipher-layout"><svg id="wheel" viewBox="0 0 300 300" role="img" aria-label="Caesar wheel"></svg><div class="wheel-controls"><label for="wheel-shift">Wheel offset</label><select id="wheel-shift" aria-describedby="wheel-feedback"></select><p id="wheel-feedback" role="status"></p><p class="muted">Read each encrypted outer letter as the inner letter beneath it. Enter both decoded words.</p><details class="wheel-table"><summary>Letter pairs as text</summary><p id="wheel-pairs"></p></details></div></div><form id="decode"><label for="answer">Decoded access phrase</label><div class="input-row"><input id="answer" maxlength="150" autocomplete="off" placeholder="Both decoded words" required><button data-mission-action>Unlock control room →</button></div></form>';
     document.querySelector('#cipher-message').textContent = state.cipher.message;
@@ -176,7 +169,7 @@ function render() {
     buildWheel();
     document.querySelector('#decode').onsubmit = e => { e.preventDefault(); action('/answer', { stage: 1, value: document.querySelector('#answer').value }); };
   } else if (state.stage === 2) {
-    screen.innerHTML = '<span class="eyebrow">STAGE 02 // CONTROL ROOM UNLOCKED</span><h2 id="screen-title" tabindex="-1">The Corrupted AI</h2><p>1. Mark the first conflicting record on the dashboard above. 2. Examine files and pin an import log entry and suspicious instruction. 3. Use all three pieces to support your diagnosis.</p><h3>Analyst workspace</h3><p class="muted">Click a file to run its simulated cat command, or type help, ls and cat FILENAME yourself.</p><div id="file-shortcuts" class="file-shortcuts"></div><div class="terminal-bar"><span>analyst@blackout</span><span>SIMULATED CONSOLE</span></div><pre id="output" role="log" aria-label="Terminal output"></pre><form id="terminal"><label for="command">Terminal command</label><div class="input-row"><input id="command" maxlength="150" autocomplete="off" autocapitalize="off" spellcheck="false" required><button data-mission-action>Execute</button></div></form><p id="evidence-status" role="status" class="muted"></p><div class="evidence-workspace"><h3>Pin file evidence</h3><label for="evidence-file">Examined file</label><select id="evidence-file"></select><div id="evidence-candidates" class="evidence-candidates"></div><h3>Evidence board</h3><p class="muted">Build a chain: physical contradiction → imported input → instruction that redirected the AI. Pinning does not automatically prove a claim.</p><ul id="evidence-board" class="evidence-board"></ul></div><div id="controller-panel"></div><form id="diagnosis"><h3>Submit a supported diagnosis</h3><details><summary>Attack types explained</summary><p>Credential theft steals login secrets. Training data poisoning changes training examples. Prompt injection redirects an AI through instructions in its input. Denial of service overwhelms a service.</p></details><div class="plan-grid"><div><label for="threat">Attack type</label><select id="threat" required><option value="">Choose attack</option><option value="credential-theft">Credential theft</option><option value="data-poisoning">Training data poisoning</option><option value="prompt-injection">Prompt injection</option><option value="denial-of-service">Denial of service</option></select></div><div><label for="source">Source file</label><select id="source" required></select></div><div><label for="support-log">Supporting import log (pinned)</label><select id="support-log" required></select></div><div><label for="support-instruction">Supporting instruction (pinned)</label><select id="support-instruction" required></select></div></div><p id="support-sensor" class="muted"></p><button data-mission-action>Verify diagnosis and evidence →</button></form>';
+    screen.innerHTML = '<span class="eyebrow">STAGE 02 // CONTROL ROOM UNLOCKED</span><h2 id="screen-title" tabindex="-1">The Corrupted AI</h2><p>1. Mark the first conflicting record on the dashboard above. 2. Examine files and pin an import log entry and suspicious instruction. 3. Use all three pieces to support your diagnosis.</p><h3>Analyst workspace</h3><div class="terminal-bar"><span>analyst@blackout</span><span>SIMULATED CONSOLE</span></div><pre id="output" role="log" aria-label="Terminal output"></pre><form id="terminal"><label for="command">Terminal command</label><div class="input-row"><input id="command" maxlength="150" autocomplete="off" autocapitalize="off" spellcheck="false" required><button data-mission-action>Execute</button></div></form><p id="evidence-status" role="status" class="muted"></p><div class="evidence-workspace"><h3>Pin file evidence</h3><label for="evidence-file">Examined file</label><select id="evidence-file"></select><div id="evidence-candidates" class="evidence-candidates"></div><h3>Evidence board</h3><p class="muted">Build a chain: physical contradiction → imported input → instruction that redirected the AI. Pinning does not automatically prove a claim.</p><ul id="evidence-board" class="evidence-board"></ul></div><div id="controller-panel"></div><form id="diagnosis"><h3>Submit a supported diagnosis</h3><details><summary>Attack types explained</summary><p>Credential theft steals login secrets. Training data poisoning changes training examples. Prompt injection redirects an AI through instructions in its input. Denial of service overwhelms a service.</p></details><div class="plan-grid"><div><label for="threat">Attack type</label><select id="threat" required><option value="">Choose attack</option><option value="credential-theft">Credential theft</option><option value="data-poisoning">Training data poisoning</option><option value="prompt-injection">Prompt injection</option><option value="denial-of-service">Denial of service</option></select></div><div><label for="source">Source file</label><select id="source" required></select></div><div><label for="support-log">Supporting import log (pinned)</label><select id="support-log" required></select></div><div><label for="support-instruction">Supporting instruction (pinned)</label><select id="support-instruction" required></select></div></div><p id="support-sensor" class="muted"></p><button data-mission-action>Verify diagnosis and evidence →</button></form>';
     document.querySelector('#terminal').onsubmit = e => { e.preventDefault(); execute(document.querySelector('#command').value); };
     document.querySelector('#evidence-file').onchange = () => { selectedEvidenceFile = document.querySelector('#evidence-file').value; syncEvidenceCandidates(); syncControls(); };
     document.querySelector('#diagnosis').onsubmit = e => {
@@ -205,8 +198,6 @@ function syncInvestigation() {
   const output = document.querySelector('#output');
   const transcript = 'BLACKOUT RESPONSE CONSOLE\nWorkspace mounted. Type help for command syntax.' + state.terminalHistory.map(turn => '\n\nanalyst@blackout:~$ ' + turn.command + '\n' + turn.output).join('');
   if (output.textContent !== transcript) { output.textContent = transcript; output.scrollTop = output.scrollHeight; }
-  const shortcuts = document.querySelector('#file-shortcuts');
-  if (!shortcuts.children.length) for (const file of state.fileNames) shortcuts.append(button('Read ' + file, () => execute('cat ' + file)));
   document.querySelector('#evidence-status').textContent = state.evidenceReady ? 'Incident trace and recovery inventory examined.' : 'Follow the import in incident.log; examine that source and recovery.txt before leaving.';
   fillSelect('#source', state.fileNames.map(file => [file, file]));
   const files = state.readFiles.filter(file => file === 'incident.log' || state.evidence.cards.some(card => card.kind === 'attachment' && card.label.startsWith(file + ' /')));
@@ -309,7 +300,6 @@ async function restoreMission() {
     button.textContent = 'Retry connection'; button.onclick = restoreMission;
   } finally { if (button.isConnected) button.disabled = false; }
 }
-window.addEventListener('blackout-sound-change', () => globalThis.BLACKOUT_SOUND?.sync(Boolean(active() && !document.hidden)));
 bindBrief();
 restoreMission();
 function buildWheel() {

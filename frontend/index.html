@@ -20,7 +20,7 @@
       <div class="masthead"><div class="club-brand">
           <img class="club-logo" src="assets/nyp-infosec-haunted.png" alt="NYP Infosec: distressed orange runner carrying a glowing purple flag" width="1254" height="1254">
           <div class="club-caption"><span class="club-name">NYP INFOSEC</span><span class="eyebrow">OPEN HOUSE<br>CYBERSECURITY ESCAPE ROOM</span></div>
-        </div><div class="header-tools"><button id="sound-toggle" type="button" aria-pressed="false">Sound: off</button><span class="signal" id="power-status">POWER OFFLINE</span></div></div>
+        </div><div class="header-tools"><span class="signal" id="power-status">POWER OFFLINE</span></div></div>
       <h1>THE <span>BLACKOUT</span></h1>
       <p>The AI says everything is fine. The lights tell a different story.</p>
     </header>
@@ -61,15 +61,12 @@
       <h2 id="screen-title" tabindex="-1">No power. No alarms.</h2>
       <p>An imported maintenance attachment redirected the AI controller. The grid is offline, but the display still reports ALL CLEAR.</p>
       <p>Unlock the monitoring dashboard, find the first suspicious reading, connect it to file evidence, then recover the grid one safe step at a time.</p>
-      <label for="mission-mode">Choose your mission</label>
-      <select id="mission-mode"><option value="event">Event mode — shared five-minute countdown</option><option value="practice">Practice mode — no countdown</option></select>
-      <p class="muted">Three stages. Hints and file shortcuts are available throughout investigation. Each mission varies its incident time, imported source and backup inventory. Sound is optional and starts off.</p>
+      <p class="muted">Three stages. One shared five-minute countdown starts when you begin. Hints are available throughout the mission. Each mission varies its incident time, imported source and backup inventory.</p>
       <button id="start">Begin mission &rarr;</button>
     </section>
     <footer><span>THE BLACKOUT / OPEN HOUSE</span><span>OBSERVE / INVESTIGATE / VERIFY</span></footer>
   </main>
   <script src="config.js"></script>
-  <script src="sound.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

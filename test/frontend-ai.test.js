@@ -20,7 +20,7 @@ test('pending controller response leaves polling and file investigation usable',
   await f.settle();
   assert.equal(f.document.querySelector('#ai-send').disabled, true);
   await [...f.intervals.values()][0]();
-  await f.clickText('#file-shortcuts', 'Read incident.log');
+  await f.command('cat incident.log');
   assert.ok(f.state().readFiles.includes('incident.log'));
   finish({ reply: 'Compare the timeline.', mode: 'scripted', fallbackReason: 'not_configured' });
   await pending;

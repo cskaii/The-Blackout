@@ -1,7 +1,6 @@
 /* Incident investigation, responsive dashboard and evidence workspace. */
 [hidden] { display: none !important; }
 .header-tools, .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-#sound-toggle { min-height: 36px; padding: 7px 10px; font-size: 10px; background: #15202a; color: #e8edf3; border-color: #6b7a87; }
 #connection-status { color: #ffca70; font: 11px/1.6 var(--mono); }
 #timer { font-size: clamp(24px, 4vw, 40px); }
 .dashboard { margin-bottom: 22px; border-top: 3px solid #ffca70; }
