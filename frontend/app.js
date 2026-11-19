@@ -252,58 +252,6 @@ async function execute(command) {
     input?.isConnected && input.focus();
   }
 }
-function syncInvestigation() {
-  if (!document.querySelector('#output') || state?.stage !== 2 || !active()) return;
-  const output = document.querySelector('#output');
-  const transcript = 'BLACKOUT RESPONSE CONSOLE\nWorkspace mounted. Type help for command syntax.' + state.terminalHistory.map(turn => '\n\nanalyst@blackout:~$ ' + turn.command + '\n' + turn.output).join('');
-  if (output.textContent !== transcript) { output.textContent = transcript; output.scrollTop = output.scrollHeight; }
-  const shortcuts = document.querySelector('#file-shortcuts');
-  if (!shortcuts.children.length) for (const file of state.fileNames) shortcuts.append(button('Read ' + file, () => execute('cat ' + file)));
-  document.querySelector('#evidence-status').textContent = state.evidenceReady ? 'Incident trace and recovery inventory examined.' : 'Follow the import in incident.log; examine that source and recovery.txt before leaving.';
-  fillSelect('#source', state.fileNames.map(file => [file, file]));
-  const files = state.readFiles.filter(file => file === 'incident.log' || state.evidence.cards.some(card => card.kind === 'attachment' && card.label.startsWith(file + ' /')));
-  fillSelect('#evidence-file', files.map(file => [file, file]));
-  if (files.includes(selectedEvidenceFile)) document.querySelector('#evidence-file').value = selectedEvidenceFile;
-  syncEvidenceCandidates();
-  const board = document.querySelector('#evidence-board'), pins = state.evidence.cards.filter(card => state.evidence.pins.includes(card.id));
-  const signature = JSON.stringify(pins);
-  if (board.dataset.signature !== signature) {
-    board.replaceChildren();
-    if (!pins.length) board.append(el('li', 'No evidence pinned yet. Start with the first conflicting dashboard record.', 'muted'));
-    for (const card of pins) { const item = el('li'); item.append(el('strong', card.label), el('p', card.text), button('Unpin', () => action('/evidence', { action: 'unpin', id: card.id }))); board.append(item); }
-    board.dataset.signature = signature;
-  }
-  fillSelect('#support-log', pins.filter(card => card.kind === 'log').map(card => [card.id, card.label + ' — ' + card.text]));
-  fillSelect('#support-instruction', pins.filter(card => card.kind === 'attachment').map(card => [card.id, card.label + ' — ' + card.text]));
-  document.querySelector('#support-sensor').textContent = state.evidence.selectedRecord ? 'Supporting sensor record: first contradiction verified and pinned.' : 'Select the first conflicting sensor record on the dashboard to support your diagnosis.';
-  syncAi();
-}
-function syncEvidenceCandidates() {
-  const target = document.querySelector('#evidence-candidates'); if (!target) return;
-  const file = document.querySelector('#evidence-file').value;
-  const cards = state.evidence.cards.filter(card => card.kind !== 'telemetry' && card.label.startsWith(file + ' /'));
-  const signature = JSON.stringify([cards, state.evidence.pins]);
-  if (target.dataset.signature === signature) return;
-  target.replaceChildren();
-  if (!file) target.append(el('p', 'Read a file, then choose it above to inspect and pin its lines.', 'muted'));
-  for (const card of cards) {
-    const row = el('div', undefined, 'excerpt'); row.append(el('span', card.label, 'eyebrow'), el('p', card.text));
-    const pinned = state.evidence.pins.includes(card.id);
-    row.append(button(pinned ? 'Unpin excerpt' : 'Pin excerpt', () => action('/evidence', { action: pinned ? 'unpin' : 'pin', id: card.id })));
-    target.append(row);
-  }
-  target.dataset.signature = signature;
-}
-async function execute(command) {
-  const input = document.querySelector('#command'), original = input?.value;
-  const d = await action('/terminal', { command });
-  if (d && !d.state.expired && state.stage === 2) {
-    const read = command.trim().match(/^cat\s+(\S+)$/)?.[1];
-    if (read) { selectedEvidenceFile = read; syncInvestigation(); syncControls(); }
-    if (input?.isConnected && input.value === original && command === original) input.value = '';
-    input?.isConnected && input.focus();
-  }
-}
 function mountHints() {
   const panel = el('aside', undefined, 'hint-panel');
   panel.innerHTML = '<div class="hint-heading"><span class="eyebrow">ASSISTANCE CHANNEL</span><button id="hint-button" type="button" data-mission-action></button></div><p class="muted">Optional help in three steps, ending with a walkthrough. No extra time penalty.</p><p id="hint-text" role="status"></p>';
@@ -349,6 +297,17 @@ async function askAi(payload, original) {
     if (error.status === 409) state.ai.pending = true;
     const node = document.querySelector('#ai-error'); if (node) node.textContent = error.message;
   } finally { if (id === sessionId) { aiBusy = false; syncAi(); } }
+}
+async function restoreMission() {
+  let id; try { id = sessionStorage.getItem('blackout-session'); } catch {}
+  if (!id) return;
+  sessionId = id; const button = document.querySelector('#start'); button.disabled = true;
+  try { const s = await api('/state'); if (id !== sessionId) return; update(s); if (active()) startPolling(); }
+  catch (error) {
+    if (error.status === 401) return;
+    notice.textContent = 'Could not reconnect. Retry to resume the existing mission; no new timer will start.';
+    button.textContent = 'Retry connection'; button.onclick = restoreMission;
+  } finally { if (button.isConnected) button.disabled = false; }
 }
 window.addEventListener('blackout-sound-change', () => globalThis.BLACKOUT_SOUND?.sync(Boolean(active() && !document.hidden)));
 bindBrief();

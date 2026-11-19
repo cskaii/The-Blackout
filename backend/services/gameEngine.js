@@ -16,10 +16,6 @@ function createSession(options = {}) {
   const passphrase = choices[crypto.randomInt(choices.length)];
   previousPhrase = passphrase;
   const id = crypto.randomUUID();
-  const choices = PASSPHRASES.filter(phrase => phrase !== previousPhrase);
-  const passphrase = choices[crypto.randomInt(choices.length)];
-  previousPhrase = passphrase;
-  const id = crypto.randomUUID();
   sessions.set(id, {
     stage: 1, revision: 0, mode: options.mode === 'practice' ? 'practice' : 'event',
     passphrase, incident: createIncident(), shift: crypto.randomInt(3, 8), startedAt: Date.now(), lastSeenAt: Date.now(),
