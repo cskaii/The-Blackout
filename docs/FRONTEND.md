@@ -1,24 +1,16 @@
-# Frontend developer handoff - The Blackout
+# The Blackout — frontend and API notes
 
-You own the frontend functionality, HTML and CSS. The backend is implemented in backend/.
-Build on frontend/index.html, frontend/app.js and frontend/style.css; you do not need to rebuild the working game from scratch.
+## State-driven game
 
-## 1. Existing features to preserve
+The backend is authoritative for mode, deadline, stage, incident, evidence pins, diagnosis and recovery. Stage 1 unlocks the monitoring dashboard. Stage 2 requires the first conflicting record and a supported diagnosis. Stage 3 uses separate quarantine, restore and verify actions. Success exposes a server-built incident replay.
 
-- Start screen, incident brief and three-stage navigation.
-- Five-minute countdown and stage progress indicators.
-- Stage 1: encrypted phrase, backup-cell clue, adjustable Caesar wheel and answer form.
-- Stage 2: simulated terminal, output history, evidence status and diagnosis form.
-- Stage 3: collected evidence review and recovery form.
-- Three optional progressive hints per stage.
-- Success, timeout and next-team restart screens.
-- Backend API calls and basic error messages.
+All session requests use `x-session-id`. POST bodies are JSON. `/api/state` returns state directly; actions return `{ok, message, state}`. HTTP 200 with `ok:false` is a rejected puzzle choice, not permission to advance.
 
 The user reports that the full mission, refresh, timeout, two-team separation, fallback and event-device checks worked. The latest changes below have automated coverage; a fresh independent browser review is still pending.
 
 ## 2. Frontend implementation checklist
 
-### AI panel in Stage 2
+## State fields
 
 - [x] Add a controller conversation panel alongside the terminal.
 - [x] Create suggested-question buttons from state.ai.questions, using each item's id and text.

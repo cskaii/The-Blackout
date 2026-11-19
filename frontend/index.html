@@ -28,13 +28,13 @@
       <p>The lights are out. The control panel says everything is fine.</p>
     </header>
     <div class="status" aria-label="Mission status">
-      <div><span class="eyebrow">EMERGENCY RESTORATION</span><p id="stage">AWAITING RESPONSE TEAM</p></div>
-      <div class="clock"><span>TIME REMAINING</span><strong id="timer" role="timer" aria-label="Time remaining">05:00</strong></div>
+      <div><span class="eyebrow">EMERGENCY RESTORATION</span><p id="stage">AWAITING RESPONSE TEAM</p><span id="connection-status" role="status"></span></div>
+      <div class="clock"><span id="clock-label">TIME REMAINING</span><strong id="timer" role="timer" aria-label="Time remaining">05:00</strong></div>
     </div>
     <ol class="progress" aria-label="Mission stages">
-      <li data-stage="1"><span>01</span> Crack the Code <small>~1 MIN</small></li>
-      <li data-stage="2"><span>02</span> The Corrupted AI <small>~2 MIN</small></li>
-      <li data-stage="3"><span>03</span> Emergency Override <small>~1 MIN</small></li>
+      <li data-stage="1"><span>01</span> Crack the Code <small>UNLOCK ACCESS</small></li>
+      <li data-stage="2"><span>02</span> The Corrupted AI <small>CONNECT THE EVIDENCE</small></li>
+      <li data-stage="3"><span>03</span> Emergency Override <small>RECOVER &amp; VERIFY</small></li>
     </ol>
     <section id="monitoring-dashboard" class="monitoring-dashboard" aria-labelledby="monitoring-title" hidden>
       <div class="monitoring-heading"><div><span class="eyebrow">INDEPENDENT SENSOR FEED</span><h2 id="monitoring-title" tabindex="-1">Monitoring dashboard</h2></div><span id="monitoring-phase" class="monitoring-phase"></span></div>

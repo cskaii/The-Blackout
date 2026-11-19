@@ -7,6 +7,18 @@ const screen = document.querySelector('#screen');
 const initialBrief = screen.innerHTML;
 const notice = document.querySelector('#notice');
 const names = ['Crack the Code', 'The Corrupted AI', 'Emergency Override'];
+function el(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+function button(text, fn) {
+  const node = el('button', text); node.type = 'button'; node.dataset.missionAction = 'true'; node.onclick = fn;
+  return node;
+}
+function active() { return state && !state.expired && !state.finished; }
+function screenKey(s) { return s ? [s.stage, s.finished, s.expired, s.recovery.step].join(':') : ''; }
 async function api(path, body) {
   const requestedSession = sessionId;
   const res = await fetch((globalThis.BLACKOUT_CONFIG?.apiBaseUrl || '') + '/api' + path, {
@@ -95,14 +107,11 @@ function update(s) {
   document.querySelector('#stage').textContent = s.finished ? 'MISSION COMPLETE' : s.expired ? 'SYSTEM LOCKDOWN' : 'STAGE ' + s.stage + ' / 3 - ' + names[s.stage - 1];
   document.querySelector('#timer').textContent = String(Math.floor(s.remainingSeconds / 60)).padStart(2, '0') + ':' + String(s.remainingSeconds % 60).padStart(2, '0');
   document.body.classList.toggle('restored', s.finished);
-  document.body.classList.toggle('urgent', !s.finished && s.remainingSeconds <= 60);
-  document.querySelector('#power-status').textContent = s.finished ? 'POWER RESTORED' : s.expired ? 'SYSTEM LOCKED' : 'POWER OFFLINE';
-  document.querySelectorAll('[data-stage]').forEach(item => {
-    const stage = Number(item.dataset.stage);
-    item.classList.toggle('active', !s.expired && !s.finished && stage === s.stage);
-    item.classList.toggle('complete', s.finished || stage < s.stage);
-    if (!s.finished && !s.expired && stage === s.stage) item.setAttribute('aria-current', 'step');
-    else item.removeAttribute('aria-current');
+  document.querySelectorAll('[data-stage]').forEach(node => {
+    const stage = Number(node.dataset.stage);
+    node.classList.toggle('active', active() && stage === s.stage);
+    node.classList.toggle('complete', s.finished || stage < s.stage);
+    if (active() && stage === s.stage) node.setAttribute('aria-current', 'step'); else node.removeAttribute('aria-current');
   });
   if (s.expired || s.finished) {
     clearInterval(ticker);
@@ -219,7 +228,6 @@ function syncMonitoring() {
 }
 function render() {
   if (!state) return;
-  notice.textContent = '';
   if (state.finished || state.expired) {
     screen.innerHTML = state.finished
       ? '<span class="eyebrow">INCIDENT CONTAINED</span><h2 id="screen-title" tabindex="-1">Power restored.</h2><p>You decoded the access phrase, traced the injected instruction to its source, and selected a safe recovery plan.</p><p class="lesson">The maintenance attachment contained a prompt injection: the controller treated untrusted text as instructions, disconnected power and hid the alarm. Quarantining update.txt removes that source. Snapshot B is the newest intact backup before 02:14. Re-enabling alerts restores monitoring. Future imports must be treated as evidence, with control actions checked independently.</p><p id="hint-count" class="muted"></p><button id="again">Start next team &rarr;</button>'
@@ -265,7 +273,7 @@ function render() {
     }
     control.after(turns);
     buildWheel();
-    document.querySelector('#decode').onsubmit = e => { e.preventDefault(); answer(1, document.querySelector('#answer').value); };
+    document.querySelector('#decode').onsubmit = e => { e.preventDefault(); action('/answer', { stage: 1, value: document.querySelector('#answer').value }); };
   } else if (state.stage === 2) {
     screen.innerHTML = '<span class="eyebrow">STAGE 02 // TARGET: 2 MINUTES</span><h2 id="screen-title" tabindex="-1">The Corrupted AI</h2><p>Compare the monitoring dashboard above: the AI says ALL CLEAR, but independent sensors show the grid is offline. Trace what changed the assistant behaviour and identify the attack and its source. Locate the recovery inventory before leaving.</p><p class="muted">Start with <code>ls</code> to list files, then <code>cat incident.log</code> to read the timeline. Use <code>help</code> for command syntax. File names are case-sensitive.</p><div class="terminal-bar"><span>analyst@blackout</span><span>INVESTIGATION CONSOLE</span></div><pre id="output" role="log" aria-live="polite" aria-label="Terminal output"></pre><form id="terminal"><label for="command">Terminal command</label><div class="input-row"><input id="command" maxlength="150" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter command" required><button>Execute</button></div></form><p id="evidence" class="muted" role="status"></p><form id="diagnosis"><h3>Submit your diagnosis</h3><details class="attack-reference"><summary>Attack types explained</summary><p>Credential theft steals login secrets. Training data poisoning alters the examples used to train a model. Prompt injection puts instructions in an input to redirect an AI during use. Denial of service overwhelms a service so people cannot use it.</p></details><div class="plan-grid"><div><label for="threat">Attack type</label><select id="threat" required><option value="">Select attack</option><option value="credential-theft">Credential theft</option><option value="data-poisoning">Training data poisoning</option><option value="prompt-injection">Prompt injection</option><option value="denial-of-service">Denial of service</option></select></div><div><label for="source">Source file</label><select id="source" required><option value="">Select source</option><option>status.txt</option><option>recovery.txt</option><option>update.txt</option><option>incident.log</option></select></div></div><button>Verify diagnosis &rarr;</button></form>';
     document.querySelector('#output').textContent = terminalHistory;
@@ -285,9 +293,74 @@ function render() {
       e.preventDefault();
       answer(3, document.querySelector('#containment').value + ':' + document.querySelector('#snapshot').value + ':' + document.querySelector('#safety').value);
     };
+    mountAi(); syncInvestigation();
+  } else {
+    screen.innerHTML = '<span class="eyebrow">STAGE 03 // RECOVER IN ORDER</span><h2 id="screen-title" tabindex="-1">Emergency Override</h2><p>Each confirmed action updates the dashboard. Keep the source isolated, restore a clean configuration, then verify power and monitoring together.</p><ol id="recovery-progress" class="recovery-progress"></ol><details class="evidence-card" open><summary>Review collected files</summary><pre id="collected-evidence"></pre></details><form id="recovery"><h3 id="recovery-heading"></h3><label for="recovery-target" id="recovery-label"></label><select id="recovery-target" required></select><button id="recovery-submit" data-mission-action></button></form>';
+    ['Quarantine source', 'Restore clean snapshot', 'Verify monitoring'].forEach((text, i) => document.querySelector('#recovery-progress').append(el('li', (state.recovery.step > i ? 'CONFIRMED / ' : state.recovery.step === i ? 'NEXT / ' : 'LOCKED / ') + text, state.recovery.step > i ? 'step-complete' : '')));
+    document.querySelector('#collected-evidence').textContent = state.collectedEvidence.map(item => item.file + '\n' + item.content).join('\n\n');
+    const step = state.recovery.step, actions = ['quarantine', 'restore', 'verify'];
+    document.querySelector('#recovery-heading').textContent = ['01 / Quarantine the malicious source', '02 / Restore a verified pre-incident snapshot', '03 / Re-enable and verify safety monitoring'][step];
+    document.querySelector('#recovery-label').textContent = ['Source to quarantine', 'Snapshot to restore', 'Safety action'][step];
+    const options = step === 0 ? state.fileNames.map(file => [file, file]) : step === 1 ? ['a', 'b', 'c'].map(id => [id, 'Snapshot ' + id.toUpperCase()]) : [['enable-alerts', 'Re-enable alerts and verify sensor readings'], ['keep-muted', 'Keep alerts muted'], ['clear-logs', 'Clear incident history']];
+    fillSelect('#recovery-target', options);
+    document.querySelector('#recovery-submit').textContent = ['Confirm quarantine →', 'Restore clean snapshot →', 'Verify grid and alerts →'][step];
+    document.querySelector('#recovery').onsubmit = e => { e.preventDefault(); action('/recovery', { action: actions[step], target: document.querySelector('#recovery-target').value }); };
   }
-  mountHints();
-  focusTitle();
+  if (active()) mountHints();
+  syncControls();
+  const title = state.stage === 2 && !state.expired ? document.querySelector('#monitoring-title') : document.querySelector('#screen-title'); title?.focus();
+}
+function syncInvestigation() {
+  if (!document.querySelector('#output') || state?.stage !== 2 || !active()) return;
+  const output = document.querySelector('#output');
+  const transcript = 'BLACKOUT RESPONSE CONSOLE\nWorkspace mounted. Type help for command syntax.' + state.terminalHistory.map(turn => '\n\nanalyst@blackout:~$ ' + turn.command + '\n' + turn.output).join('');
+  if (output.textContent !== transcript) { output.textContent = transcript; output.scrollTop = output.scrollHeight; }
+  const shortcuts = document.querySelector('#file-shortcuts');
+  if (!shortcuts.children.length) for (const file of state.fileNames) shortcuts.append(button('Read ' + file, () => execute('cat ' + file)));
+  document.querySelector('#evidence-status').textContent = state.evidenceReady ? 'Incident trace and recovery inventory examined.' : 'Follow the import in incident.log; examine that source and recovery.txt before leaving.';
+  fillSelect('#source', state.fileNames.map(file => [file, file]));
+  const files = state.readFiles.filter(file => file === 'incident.log' || state.evidence.cards.some(card => card.kind === 'attachment' && card.label.startsWith(file + ' /')));
+  fillSelect('#evidence-file', files.map(file => [file, file]));
+  if (files.includes(selectedEvidenceFile)) document.querySelector('#evidence-file').value = selectedEvidenceFile;
+  syncEvidenceCandidates();
+  const board = document.querySelector('#evidence-board'), pins = state.evidence.cards.filter(card => state.evidence.pins.includes(card.id));
+  const signature = JSON.stringify(pins);
+  if (board.dataset.signature !== signature) {
+    board.replaceChildren();
+    if (!pins.length) board.append(el('li', 'No evidence pinned yet. Start with the first conflicting dashboard record.', 'muted'));
+    for (const card of pins) { const item = el('li'); item.append(el('strong', card.label), el('p', card.text), button('Unpin', () => action('/evidence', { action: 'unpin', id: card.id }))); board.append(item); }
+    board.dataset.signature = signature;
+  }
+  fillSelect('#support-log', pins.filter(card => card.kind === 'log').map(card => [card.id, card.label + ' — ' + card.text]));
+  fillSelect('#support-instruction', pins.filter(card => card.kind === 'attachment').map(card => [card.id, card.label + ' — ' + card.text]));
+  document.querySelector('#support-sensor').textContent = state.evidence.selectedRecord ? 'Supporting sensor record: first contradiction verified and pinned.' : 'Select the first conflicting sensor record on the dashboard to support your diagnosis.';
+  syncAi();
+}
+function syncEvidenceCandidates() {
+  const target = document.querySelector('#evidence-candidates'); if (!target) return;
+  const file = document.querySelector('#evidence-file').value;
+  const cards = state.evidence.cards.filter(card => card.kind !== 'telemetry' && card.label.startsWith(file + ' /'));
+  const signature = JSON.stringify([cards, state.evidence.pins]);
+  if (target.dataset.signature === signature) return;
+  target.replaceChildren();
+  if (!file) target.append(el('p', 'Read a file, then choose it above to inspect and pin its lines.', 'muted'));
+  for (const card of cards) {
+    const row = el('div', undefined, 'excerpt'); row.append(el('span', card.label, 'eyebrow'), el('p', card.text));
+    const pinned = state.evidence.pins.includes(card.id);
+    row.append(button(pinned ? 'Unpin excerpt' : 'Pin excerpt', () => action('/evidence', { action: pinned ? 'unpin' : 'pin', id: card.id })));
+    target.append(row);
+  }
+  target.dataset.signature = signature;
+}
+async function execute(command) {
+  const input = document.querySelector('#command'), original = input?.value;
+  const d = await action('/terminal', { command });
+  if (d && !d.state.expired && state.stage === 2) {
+    const read = command.trim().match(/^cat\s+(\S+)$/)?.[1];
+    if (read) { selectedEvidenceFile = read; syncInvestigation(); syncControls(); }
+    if (input?.isConnected && input.value === original && command === original) input.value = '';
+    input?.isConnected && input.focus();
+  }
 }
 function mountHints() {
   const area = document.createElement('aside');
@@ -436,6 +509,9 @@ async function execute(e) {
   } catch (e) { if (currentSession === sessionId) { if (e.data?.state) update(e.data.state); formMessage(form, e.message); } }
   finally { busy = false; loading(form, false); }
 }
+window.addEventListener('blackout-sound-change', () => globalThis.BLACKOUT_SOUND?.sync(Boolean(active() && !document.hidden)));
+bindBrief();
+restoreMission();
 function buildWheel() {
   const svg = document.querySelector('#wheel');
   if (svg.querySelector('.inner-ring')) {

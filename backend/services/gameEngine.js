@@ -11,9 +11,12 @@ let previousPhrase = null;
 function encrypt(text, shift) {
   return text.replace(/[A-Z]/g, letter => String.fromCharCode(65 + (letter.charCodeAt(0) - 65 + shift) % 26));
 }
-function createSession() {
+function createSession(options = {}) {
   cleanupSessions();
   if (sessions.size >= 1000) throw new Error('Session capacity reached');
+  const choices = PASSPHRASES.filter(p => p !== previousPhrase);
+  const passphrase = choices[crypto.randomInt(choices.length)];
+  previousPhrase = passphrase;
   const id = crypto.randomUUID();
   const choices = PASSPHRASES.filter(phrase => phrase !== previousPhrase);
   const passphrase = choices[crypto.randomInt(choices.length)];
@@ -25,9 +28,17 @@ function createSession() {
   });
   return id;
 }
-function getSession(id) { return sessions.get(id); }
+function getSession(id) {
+  const s = sessions.get(id);
+  if (s) s.lastSeenAt = Date.now();
+  return s;
+}
+function expired(s) { return s.mode !== 'practice' && !s.finished && Date.now() - s.startedAt >= DURATION_MS; }
+function valid(s) { return Boolean(s && !s.finished && !expired(s)); }
+function requiredFiles(s) { return ['incident.log', s.incident.source, 'recovery.txt']; }
 function publicState(s) {
   const elapsed = (s.finishedAt ?? Date.now()) - s.startedAt;
+  const files = filesFor(s.incident);
   return {
     stage: s.stage,
     revision: s.revision,
@@ -43,21 +54,13 @@ function publicState(s) {
     hintsUsed: Object.values(s.hints).reduce((sum, count) => sum + count, 0),
     revealedHints: { ...s.hintMessages },
     terminalHistory: s.terminalHistory.map(turn => ({ ...turn })),
-    ai: {
-      configured: Boolean(config.apiKey), questions: QUESTIONS,
-      remainingRequests: Math.max(0, config.sessionLimit - s.aiRequests),
-      pending: s.aiPending, history: s.aiHistory.map(turn => ({ ...turn }))
-    }
+    ai: { configured: Boolean(config.apiKey), questions: QUESTIONS, remainingRequests: Math.max(0, config.sessionLimit - s.aiRequests), pending: s.aiPending, history: s.aiHistory.map(turn => ({ ...turn })) }
   };
 }
-function valid(s) { return Boolean(s && !s.finished && Date.now() - s.startedAt < DURATION_MS); }
-function answer(s, stage, value) {
-  const result = (ok, message) => ({ ok, message, state: publicState(s) });
-  if (!valid(s)) return result(false, 'Mission ended. Start a new mission to try again.');
-  if (s.stage !== stage) return result(false, 'Complete the current stage first.');
-  if (stage === 2 && !publicState(s).evidenceReady) {
-    return result(false, 'Evidence incomplete. Trace the controller event, inspect its source and locate the recovery inventory.');
-  }
+function result(s, ok, message) { return { ok, message, state: publicState(s) }; }
+function answer(s, stage, value, evidence) {
+  if (!valid(s)) return result(s, false, 'Mission ended. Start a new mission to try again.');
+  if (s.stage !== stage) return result(s, false, 'Complete the current stage first.');
   const normalized = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
   const correct = stage === 1 ? normalized === s.passphrase.toLowerCase()
     : stage === 2 ? normalized === 'prompt-injection:update.txt'
@@ -71,8 +74,8 @@ function answer(s, stage, value) {
   return result(true, s.finished ? 'Power restored. Mission complete!' : 'Verified. Next stage unlocked.');
 }
 function hint(s) {
-  if (!valid(s)) return { ok: false, message: 'Mission ended.', state: publicState(s) };
-  const shift = s.shift;
+  if (!valid(s)) return result(s, false, 'Mission ended.');
+  const p = s.incident;
   const hints = {
     1: [
       'The dark cells on the backup panel give the key. Encryption moved forward; decoding must reverse it.',
@@ -97,8 +100,11 @@ function hint(s) {
   return { ok: true, level: index + 1, total: 3, message: hints[s.stage][index], state: publicState(s) };
 }
 function cleanupSessions() {
-  const cutoff = Date.now() - 30 * 60 * 1000;
-  for (const [id, session] of sessions) if (session.startedAt < cutoff) sessions.delete(id);
+  const now = Date.now();
+  for (const [id, s] of sessions) {
+    const stale = s.mode === 'practice' && !s.finished ? now - s.lastSeenAt > 24 * 60 * 60 * 1000 : now - (s.finishedAt ?? s.startedAt) > 30 * 60 * 1000;
+    if (stale) sessions.delete(id);
+  }
 }
-setInterval(cleanupSessions, 60 * 1000).unref();
-module.exports = { createSession, getSession, publicState, valid, answer, hint, encrypt, DURATION_MS, cleanupSessions };
+setInterval(cleanupSessions, 60000).unref();
+module.exports = { createSession, getSession, publicState, valid, answer, hint, evidence, recover, encrypt, DURATION_MS, cleanupSessions };

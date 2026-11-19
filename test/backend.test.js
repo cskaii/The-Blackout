@@ -33,7 +33,14 @@ async function session(app, stage = 1) {
   s.stage = stage;
   return { id: data.sessionId, s };
 }
-test('full existing mission works and evidence is required', async () => {
+async function investigate(app, id, s) {
+  for (const file of ['incident.log', s.incident.source, 'recovery.txt']) await request(app, '/terminal', { command: 'cat ' + file }, id);
+  await request(app, '/evidence', { action: 'record', id: 'sensor:record-1' }, id);
+  for (const card of ['file:incident.log:1', 'file:' + s.incident.source + ':2']) await request(app, '/evidence', { action: 'pin', id: card }, id);
+  return ['sensor:record-1', 'file:incident.log:1', 'file:' + s.incident.source + ':2'];
+}
+
+test('full mission requires supported diagnosis and recovery in sequence', async () => {
   const app = createApp();
   const { id, s } = await session(app);
   assert.equal(game.publicState(s).remainingSeconds, 300);
@@ -47,6 +54,7 @@ test('full existing mission works and evidence is required', async () => {
   assert.equal((await request(app, '/answer', { stage: 3, value: 'update.txt:b:enable-alerts' }, id)).data.state.finished, true);
   assert.equal((await request(app, '/terminal', { command: 'ls' }, id)).status, 403);
 });
+
 test('session recovery returns only that team history and revealed hints', async () => {
   const app = createApp({ ai: createAiService({ apiKey: '' }) });
   const a = await session(app, 2), b = await session(app, 2);
@@ -221,7 +229,9 @@ test('concurrent requests are blocked and late replies cannot progress the game'
 test('completed mission timer freezes and expired missions reject answers', () => {
   const s = game.getSession(game.createSession());
   s.stage = 3;
-  assert.equal(game.answer(s, 3, 'update.txt:b:enable-alerts').ok, true);
+  game.recover(s, 'quarantine', s.incident.source);
+  game.recover(s, 'restore', s.incident.safeSnapshot);
+  assert.equal(game.recover(s, 'verify', 'enable-alerts').ok, true);
   const before = game.publicState(s).remainingSeconds;
   s.startedAt -= 600000; s.finishedAt -= 600000;
   assert.equal(game.publicState(s).remainingSeconds, before);
