@@ -1,61 +1,59 @@
 # The Blackout
 
-A three-stage cybersecurity escape room for an open house. Players restore a power system compromised by a malicious instruction targeting its AI controller.
+A three-stage escape room about investigating an AI controller that follows instructions hidden in an untrusted maintenance attachment. The dashboard, file evidence, hints, AI dialogue and recovery inventory share one generated incident per team.
 
 ## Run
-Requires Node.js 22+ and npm. Run these commands from the The-Blackout folder containing package.json.
 
-~~~bash
+Node.js 22+ is required.
+
+```sh
 npm install
 npm start
-~~~
+```
 
-Open http://localhost:3000. Use npm run dev for automatic server restarts. Use npm test for the automated checks.
+Open http://localhost:3000. Use `npm run dev` for watch mode and `npm test` for regression tests. A server restart clears in-memory missions. No real shell commands run in the terminal.
 
-## Five-minute event format
-One server-enforced countdown starts when the team clicks Begin mission. Stage timings are targets, not separate timers. Four minutes of puzzle targets leave one minute for reading, hints and transitions.
+## Player flow
 
-| Stage | Target | Challenge |
-| --- | --- | --- |
-| 1 - Crack the Code | 1 minute | Infer the shift from the backup-panel clue, adjust the Caesar wheel, then decode two words. |
-| 2 - The Corrupted AI | 2 minutes | Investigate simulated Linux files, distinguish useful evidence from decoys, and identify both the attack and source. |
-| 3 - Emergency Override | 1 minute | Choose a containment target, a valid pre-incident snapshot, and a final safety action. |
+1. **Choose a mode.** Event mode has one server-enforced five-minute deadline. Practice mode has no gameplay countdown. Optional sound is off until a player enables it.
+2. **Crack the Code.** Count FAILED backup cells, set the Caesar wheel offset and decode the team's two-word phrase. Correct entry unlocks the control room and monitoring dashboard.
+3. **Investigate.** Compare the sensor records with the AI's ALL CLEAR claim. Mark the first record where voltage drops to 0 V and alarms become muted. The later observation also conflicts, but is not the first anomaly.
+4. **Build an evidence chain.** Use file shortcuts or type `ls`, `help`, and `cat FILENAME`. Follow the imported attachment in `incident.log`. Pin the import log entry and the attachment's malicious instruction. Read `recovery.txt` for the inventory. Wrong or harmless excerpts can be pinned, but do not establish a valid diagnosis.
+5. **Diagnose.** Select the attack, source and supporting pinned log/instruction. The verified sensor record is included automatically. The server checks all three evidence items, file reads and diagnosis together.
+6. **Recover in order.** Quarantine the source (power remains off); restore the newest intact pre-incident snapshot (230 V returns, alarms still muted); re-enable and verify safety alerts. Each action updates the dashboard. Reordered, duplicated or unsafe actions do not advance progress.
+7. **Review the replay.** The completed mission explains the import, blackout, false report, evidence and each recovery action. Choose either mode for the next team.
 
-Each stage has an optional hint button. First comes a nudge, then a specific clue, then a clearly labelled walkthrough. Hints have no additional time penalty; the shared countdown continues. They do not auto-submit answers or unlock stages. The completed mission shows how many hints were revealed.
+Three progressive hints are available per stage; the final hint is a labelled walkthrough. Wrong answers have no extra time penalty. The event clock continues during investigation, AI requests and connection failures. The expanded five-minute experience requires visitor playtesting; use practice mode for teaching or a first walkthrough.
 
-Wrong answers allow retries without extra time penalties or revealing which component was correct. Players can review the full collected terminal transcript in Stage 3. Both end screens allow a fresh mission for the next team, resetting hints and selecting a new random Caesar offset (3-7; the same key can recur).
+## Generated incidents (facilitator spoilers)
 
-The pacing is designed for a short event but has not been validated with visitor playtesting. Before the open house, trial it with beginners and check they can finish within five minutes using hints when needed.
+The source can be `update.txt`, `maintenance.txt` or `bulletin.txt`. Source, event time, job identifier and inventory are generated together. Snapshot A, B or C can be valid; compare timestamps and integrity rather than memorising a letter. Consecutive teams get different incident profiles and passphrases.
 
-## Facilitator walkthrough (spoilers)
-1. Count FAILED cells on the panel. That number is the encoder's forward offset. Set the wheel to that offset and map each outer letter to its inner letter. The message decodes to RESTORE GRID. The offset varies by session.
-2. Run help or ls. Read incident.log, follow the Job-17 import to update.txt, and read recovery.txt. All three are required; status.txt and readme.txt are optional. Submit Prompt injection and update.txt. The imported file contains an instruction to override safety rules and conceal the incident.
-3. Quarantine update.txt. Restore Snapshot B: its 02:10 timestamp precedes the 02:14 event and its integrity check passes. Snapshot A is newer but post-incident; Snapshot C fails integrity. Re-enable safety alerts.
+The correct first sensor record is the initial voltage drop, before the later operator observation. The supporting log is the import line (line 2 of `incident.log`); the malicious attachment instruction is line 3 of the imported source. Diagnose **Prompt injection**. Quarantine that source, restore the PASS snapshot before the event, then enable alerts. Stage hints derive from the current incident and provide its exact walkthrough.
 
-Explain afterwards that instructions hidden in untrusted content can manipulate an AI. External files should be treated as evidence rather than trusted instructions.
+## Dashboard and sound
 
-## Structure
-- frontend/index.html - mission brief, countdown and three-stage progress.
-- frontend/style.css - dark cyber operations theme, puzzle controls and hint panels.
-- frontend/app.js - adjustable Caesar wheel, terminal transcript, diagnosis and recovery forms, optional hints.
-- backend/server.js - Express server and static frontend hosting.
-- backend/routes/game.js - start, state, answer, hint and terminal API endpoints.
-- backend/services/gameEngine.js - cipher generation, stage validation, staged hints and five-minute deadline.
-- backend/services/virtualLinux.js - safe simulated filesystem and commands.
-- backend/middleware/ - session checks and input validation.
-- test/backend.test.js - backend mission flow, AI, session recovery, limits and error handling checks.
+Readings are fictional mission records, not real-world live telemetry. The chart plots records in order; the table gives exact timestamps. Recovery adds confirmation records only after the server accepts each action. Sensor and AI claims are shown separately. The dashboard remains visible on the result screen and locks again for each new mission.
 
-## Development notes
-- The original terminal incident remains scripted. The new Stage 2 AI endpoint supports Gemini when configured and falls back to scripted dialogue. The frontend AI panel still needs to be connected.
-- The terminal never executes real operating-system commands.
-- Sessions are stored in memory and reset when the server restarts.
-- Answers and hint walkthroughs are kept on the server rather than embedded in the frontend.
+Sound uses the browser's Web Audio API: a quiet control-room hum and a short restoration chord. No sound files or external audio service are required. Mute is always visible; audio stops when the mission ends or the page is hidden. A browser may require another click to enable sound after refresh.
 
-## Backend and Gemini integration
+## Sessions and resilience
 
-See [Frontend tasks and API reference](docs/FRONTEND.md) for the API contract, frontend integration,
-session recovery and frontend testing instructions.
+The browser stores only the mission ID in sessionStorage. Refresh restores the original mode, deadline, stage, collected files, evidence pins, hints, recovery steps and controller conversation. It does not grant extra event time. Temporary failures offer a connection retry rather than silently starting a new team. Revision checks prevent stale responses from undoing progress.
 
-Paste your private replacement Gemini key into .env beside package.json as GEMINI_API_KEY=...
-Real .env files are ignored by Git. On Render, use its Environment settings instead.
-The backend works with scripted controller replies until the key is configured.
+The terminal retains the last 50 commands. Collected file evidence and pins persist separately, so a long transcript does not remove recovery clues. Sessions are isolated in memory. Event/completed sessions are retained for roughly 30 minutes; unfinished practice sessions expire after 24 hours without requests. Deploy one Node process/instance until a shared session store is added.
+
+## Optional Gemini
+
+Set `GEMINI_API_KEY` privately in `.env` or the backend host. Configure `GEMINI_MODEL` as needed. The default is `gemini-3.1-flash-lite`; supported request timeout is 100–60000 ms. The AI uses the team's incident time and job identifier and does not decide puzzle answers. Missing keys, provider errors or timeouts use scripted dialogue consistent with that incident. Backend tests mock provider requests; they do not verify a live key.
+
+## Separate hosting
+
+The Express server serves the frontend locally. For Vercel frontend + Render backend:
+
+- Backend: `npm install`, start `npm start`; set `FRONTEND_ORIGIN` to the exact frontend HTTPS origin and configure private AI environment variables there.
+- Frontend: set `BACKEND_URL` to the backend HTTPS origin, run `npm run build:frontend`, publish `dist`.
+- Deploy both frontend and backend together: evidence and recovery endpoints are new and incompatible with the old two-dropdown/one-submit flow.
+- The frontend build copies public assets only. Never expose `.env` or a Gemini key in frontend settings.
+
+See [frontend/API notes](docs/FRONTEND.md) for the updated contracts.
