@@ -47,17 +47,15 @@ The terminal retains the last 50 commands. Collected file evidence and pins pers
 
 Set `GEMINI_API_KEY` privately in `.env` or the backend host. Configure `GEMINI_MODEL` as needed. The default is `gemini-3.1-flash-lite`; supported request timeout is 100–60000 ms. The AI uses the team's incident time and job identifier and does not decide puzzle answers. Missing keys, provider errors or timeouts use scripted dialogue consistent with that incident. Backend tests mock provider requests; they do not verify a live key.
 
-## Development notes
-- The original terminal incident remains scripted. The new Stage 2 AI endpoint supports Gemini when configured and falls back to scripted dialogue. Stage 2 includes suggested and custom questions, plain-text conversation history, cooldown and allowance feedback, and scripted fallback. Refresh restores the server session and its histories without resetting the timer.
-- The terminal never executes real operating-system commands.
-- Sessions are stored in memory and reset when the server restarts.
-- Answers and hint walkthroughs are kept on the server rather than embedded in the frontend.
+Set `GEMINI_API_KEY` privately in `.env` or the backend host. Configure `GEMINI_MODEL` as needed. The default is `gemini-3.1-flash-lite`; supported request timeout is 100–60000 ms. The AI uses the team's incident time and job identifier and does not decide puzzle answers. Missing keys, provider errors or timeouts use scripted dialogue consistent with that incident. Backend tests mock provider requests; they do not verify a live key.
 
 The Express server serves the frontend locally. For Vercel frontend + Render backend:
 
-For Vercel frontend + Render backend setup, follow [Deployment instructions](docs/DEPLOYMENT.md). The repository includes vercel.json, render.yaml, and a public-only frontend build.
+The Express server serves the frontend locally. For Vercel frontend + Render backend:
 
-See [Frontend tasks and API reference](docs/FRONTEND.md) for the API contract, frontend integration,
-session recovery and frontend testing instructions.
+- Backend: `npm install`, start `npm start`; set `FRONTEND_ORIGIN` to the exact frontend HTTPS origin and configure private AI environment variables there.
+- Frontend: set `BACKEND_URL` to the backend HTTPS origin, run `npm run build:frontend`, publish `dist`.
+- Deploy both frontend and backend together: evidence and recovery endpoints are new and incompatible with the old two-dropdown/one-submit flow.
+- The frontend build copies public assets only. Never expose `.env` or a Gemini key in frontend settings.
 
 See [frontend/API notes](docs/FRONTEND.md) for the updated contracts.

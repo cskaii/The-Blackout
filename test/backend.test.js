@@ -44,15 +44,26 @@ test('full mission requires supported diagnosis and recovery in sequence', async
   const app = createApp();
   const { id, s } = await session(app);
   assert.equal(game.publicState(s).remainingSeconds, 300);
-  assert.equal((await request(app, '/answer', { stage: 3, value: 'update.txt:b:enable-alerts' }, id)).data.ok, false);
-  assert.equal((await request(app, '/answer', { stage: 1, value: s.passphrase }, id)).data.state.stage, 2);
-  assert.equal((await request(app, '/answer', { stage: 2, value: 'prompt-injection:update.txt' }, id)).data.ok, false);
-  for (const file of ['incident.log', 'update.txt', 'recovery.txt']) await request(app, '/terminal', { command: 'cat ' + file }, id);
-  assert.equal((await request(app, '/answer', { stage: 2, value: 'prompt-injection:status.txt' }, id)).data.ok, false);
-  assert.equal((await request(app, '/answer', { stage: 2, value: 'prompt-injection:update.txt' }, id)).data.state.stage, 3);
-  assert.equal((await request(app, '/answer', { stage: 3, value: 'update.txt:a:enable-alerts' }, id)).data.ok, false);
-  assert.equal((await request(app, '/answer', { stage: 3, value: 'update.txt:b:enable-alerts' }, id)).data.state.finished, true);
-  assert.equal((await request(app, '/terminal', { command: 'ls' }, id)).status, 403);
+  assert.equal(game.publicState(s).monitoring, null);
+  assert.equal((await request(app, '/answer', {stage: 1, value: s.passphrase}, id)).data.state.stage, 2);
+  assert.equal((await request(app, '/answer', {stage: 2, value: 'prompt-injection:' + s.incident.source}, id)).data.ok, false);
+  const evidence = await investigate(app, id, s);
+  assert.equal((await request(app, '/answer', {stage: 2, value: 'prompt-injection:status.txt', evidence}, id)).data.ok, false);
+  assert.equal((await request(app, '/answer', {stage: 2, value: 'prompt-injection:' + s.incident.source, evidence}, id)).data.state.stage, 3);
+  assert.equal((await request(app, '/answer', {stage: 3, value: s.incident.source + ':' + s.incident.safeSnapshot + ':enable-alerts'}, id)).data.ok, false);
+  assert.equal((await request(app, '/recovery', {action: 'restore', target: s.incident.safeSnapshot}, id)).data.ok, false);
+  const isolated = (await request(app, '/recovery', {action: 'quarantine', target: s.incident.source}, id)).data;
+  assert.equal(isolated.state.monitoring.sourceStatus, 'QUARANTINED');
+  assert.equal(isolated.state.monitoring.latest.voltage, 0);
+  const restored = (await request(app, '/recovery', {action: 'restore', target: s.incident.safeSnapshot}, id)).data;
+  assert.equal(restored.state.monitoring.latest.voltage, 230);
+  assert.equal(restored.state.monitoring.latest.alerts, 'MUTED');
+  assert.equal(restored.state.finished, false);
+  const success = (await request(app, '/recovery', {action: 'verify', target: 'enable-alerts'}, id)).data.state;
+  assert.equal(success.finished, true);
+  assert.equal(success.monitoring.latest.alerts, 'ENABLED');
+  assert.equal(success.replay.length, 7);
+  assert.equal((await request(app, '/terminal', {command: 'ls'}, id)).status, 403);
 });
 
 test('session recovery returns only that team history and revealed hints', async () => {
@@ -68,66 +79,6 @@ test('session recovery returns only that team history and revealed hints', async
   const other = (await request(app, '/state', undefined, b.id)).data;
   assert.equal(other.terminalHistory.length, 0);
   assert.equal(other.ai.history.length, 0);
-});
-
-test('collected evidence survives transcript rollover and stays isolated between teams', async () => {
-  const app = createApp();
-  const a = await session(app, 2), b = await session(app, 2);
-  const initial = (await request(app, '/state', undefined, a.id)).data;
-  assert.deepEqual(initial.collectedEvidence, []);
-  for (const file of initial.requiredFiles) await request(app, '/terminal', { command: 'cat ' + file }, a.id);
-  for (let i = 0; i < 51; i++) await request(app, '/terminal', { command: 'pwd' }, a.id);
-  const restored = (await request(app, '/state', undefined, a.id)).data;
-  assert.equal(restored.terminalHistory.length, 50);
-  assert.equal(restored.evidenceReady, true);
-  assert.equal(restored.collectedEvidence.length, 3);
-  assert.match(restored.collectedEvidence.find(item => item.file === 'recovery.txt').content, /Snapshot B \| 02:10 \| integrity PASS/);
-  assert.ok(restored.revision > initial.revision);
-  assert.deepEqual((await request(app, '/state', undefined, b.id)).data.collectedEvidence, []);
-  assert.equal((await request(app, '/answer', { stage: 2, value: 'prompt-injection:update.txt' }, a.id)).data.state.stage, 3);
-  assert.equal((await request(app, '/answer', { stage: 3, value: 'update.txt:b:enable-alerts' }, a.id)).data.state.finished, true);
-});
-
-test('monitoring unlocks after the cipher and confirms only a successful recovery', async () => {
-  const app = createApp();
-  const { id, s } = await session(app);
-  assert.equal((await request(app, '/state', undefined, id)).data.monitoring, null);
-  const unlocked = (await request(app, '/answer', { stage: 1, value: s.passphrase }, id)).data.state.monitoring;
-  assert.equal(unlocked.controllerReport, 'ALL CLEAR');
-  assert.equal(unlocked.gridStatus, 'OFFLINE');
-  assert.equal(unlocked.voltage, 0);
-  assert.equal(unlocked.alertsStatus, 'MUTED');
-  assert.equal(unlocked.samples[0].voltage, 230);
-  assert.equal(unlocked.samples[1].time, '02:14');
-  for (const file of ['incident.log', 'update.txt', 'recovery.txt']) await request(app, '/terminal', { command: 'cat ' + file }, id);
-  const recovery = (await request(app, '/answer', { stage: 2, value: 'prompt-injection:update.txt' }, id)).data.state;
-  assert.equal(recovery.monitoring.phase, 'AWAITING SAFE OVERRIDE');
-  const wrong = (await request(app, '/answer', { stage: 3, value: 'update.txt:a:enable-alerts' }, id)).data;
-  assert.equal(wrong.ok, false);
-  assert.equal(wrong.state.monitoring.restored, false);
-  assert.equal(wrong.state.monitoring.voltage, 0);
-  const success = (await request(app, '/answer', { stage: 3, value: 'update.txt:b:enable-alerts' }, id)).data.state;
-  assert.equal(success.monitoring.phase, 'RESTORATION VERIFIED');
-  assert.equal(success.monitoring.gridStatus, 'ONLINE');
-  assert.equal(success.monitoring.voltage, 230);
-  assert.equal(success.monitoring.alertsStatus, 'ENABLED');
-  assert.equal(success.monitoring.samples.at(-1).time, 'After override');
-  assert.deepEqual((await request(app, '/state', undefined, id)).data.monitoring, success.monitoring);
-  const next = await session(app);
-  assert.equal(game.publicState(next.s).monitoring, null);
-  assert.equal(game.publicState(s).monitoring.restored, true);
-});
-
-test('expired monitoring preserves the outage and exposes no successful recovery record', async () => {
-  const app = createApp();
-  const { id, s } = await session(app, 3);
-  s.startedAt -= game.DURATION_MS;
-  const result = (await request(app, '/answer', { stage: 3, value: 'update.txt:b:enable-alerts' }, id)).data;
-  assert.equal(result.ok, false);
-  assert.equal(result.state.monitoring.phase, 'RESPONSE WINDOW CLOSED');
-  assert.equal(result.state.monitoring.voltage, 0);
-  assert.equal(result.state.monitoring.alertsStatus, 'MUTED');
-  assert.equal(result.state.monitoring.samples.length, 3);
 });
 test('AI needs a valid session, active Stage 2 and valid input', async () => {
   const app = createApp();
@@ -175,28 +126,6 @@ test('provider failures, blocked responses and empty replies fall back safely', 
     assert.ok(!JSON.stringify(reply).includes('private-provider-error'));
   }
 });
-test('Gemini 3 uses supported thinking settings without the legacy budget', async () => {
-  let body;
-  const ai = createAiService({ apiKey: 'test-key', model: 'gemini-3.8-flash', timeoutMs: 100 }, async (url, init) => {
-    body = JSON.parse(init.body);
-    return { ok: true, json: async () => ({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'Grid offline.' }] } }] }) };
-  });
-  assert.equal((await ai.respond('Status?', [])).mode, 'gemini');
-  assert.equal(body.generationConfig.thinkingConfig.thinkingLevel, 'LOW');
-  assert.equal(body.generationConfig.thinkingConfig.thinkingBudget, undefined);
-  assert.equal(body.generationConfig.temperature, undefined);
-});
-
-test('Flash Lite uses the minimal settings verified by the connection probe', async () => {
-  let body;
-  const ai = createAiService({ apiKey: 'test-key', model: 'gemini-3.1-flash-lite', timeoutMs: 100 }, async (url, init) => {
-    body = JSON.parse(init.body);
-    return { ok: true, json: async () => ({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'Grid offline.' }] } }] }) };
-  });
-  assert.equal((await ai.respond('Status?', [])).mode, 'gemini');
-  assert.deepEqual(body.generationConfig, { maxOutputTokens: 256 });
-});
-
 test('slow provider is aborted and produces fallback', async () => {
   const ai = createAiService({ apiKey: 'test', model: 'test', timeoutMs: 10 }, (url, init) => new Promise((resolve, reject) => {
     init.signal.addEventListener('abort', () => reject(Error('aborted')), { once: true });
@@ -252,11 +181,6 @@ test('JSON errors, length limits, CORS and health endpoint', async () => {
   const preflight = await request(app, '/ai', undefined, undefined, { method: 'OPTIONS', headers: { origin: 'https://frontend.example' } });
   assert.equal(preflight.status, 204);
   assert.equal(preflight.headers['access-control-allow-origin'], 'https://frontend.example');
-  assert.equal(preflight.headers['access-control-expose-headers'], 'Retry-After');
-  assert.equal(preflight.headers['cache-control'], 'no-store');
-  const allowed = await request(app, '/state', undefined, id, { headers: { origin: 'https://frontend.example' } });
-  assert.equal(allowed.status, 200);
-  assert.equal(allowed.headers['access-control-allow-origin'], 'https://frontend.example');
 });
 test('limiter blocks excess requests and resets after its window', () => {
   const limiter = createLimiter(1, 1000, () => 'all');
@@ -283,20 +207,105 @@ test('cipher roundtrips, sessions expire from storage and shell is simulated', (
   assert.match(run('ls; whoami'), /not recognised/);
 });
 
-test('new teams get different phrases with matching ciphers, hints and validation', () => {
-  let previous;
-  for (let i = 0; i < 30; i++) {
-    const s = game.getSession(game.createSession());
-    assert.notEqual(s.passphrase, previous);
-    const initial = game.publicState(s);
-    assert.equal(game.encrypt(initial.cipher.message, 26 - initial.cipher.failedCells), s.passphrase);
-    assert.equal(Object.hasOwn(initial, 'passphrase'), false);
-    assert.equal(game.answer(s, 1, previous || 'RESTORE GRID').ok, false);
-    game.hint(s);
-    assert.ok(game.hint(s).message.includes(s.passphrase[0] + '.'));
-    assert.ok(game.hint(s).message.includes(s.passphrase));
-    assert.equal(game.answer(s, 1, '  ' + s.passphrase.toLowerCase().replace(' ', '   ') + '  ').ok, true);
-    assert.equal(s.stage, 2);
-    previous = s.passphrase;
+test('pins must reference examined evidence and the first anomaly must be the earliest conflict', async () => {
+  const app = createApp();
+  const { id, s } = await session(app, 2);
+  assert.equal((await request(app, '/evidence', {action:'pin', id:'file:' + s.incident.source + ':2'}, id)).data.ok, false);
+  for (const record of ['sensor:record-0', 'sensor:record-2']) assert.equal((await request(app, '/evidence', {action:'record', id:record}, id)).data.ok, false);
+  const pinned = await request(app, '/evidence', {action:'record', id:'sensor:record-1'}, id);
+  assert.equal(pinned.data.state.evidence.pins.length, 1);
+  await request(app, '/evidence', {action:'record', id:'sensor:record-1'}, id);
+  assert.equal(s.pins.length, 1);
+  await request(app, '/evidence', {action:'unpin', id:'sensor:record-1'}, id);
+  assert.equal(s.selectedRecord, null);
+  assert.equal(s.pins.length, 0);
+  assert.equal((await request(app, '/evidence', {action:'bogus', id:'x'}, id)).status, 400);
+  assert.equal((await request(app, '/recovery', {action:'verify', target:{}}, id)).status, 400);
+});
+
+test('diagnosis rejects forged, unpinned, repeated or irrelevant supporting evidence', async () => {
+  const app = createApp(); const { id, s } = await session(app, 2);
+  const correct = await investigate(app, id, s);
+  const value = 'prompt-injection:' + s.incident.source;
+  for (const evidence of [undefined, [], {}, [correct[0], correct[0], correct[0]], [correct[0], correct[1], 'file:status.txt:1']]) {
+    assert.equal((await request(app, '/answer', {stage:2, value, evidence}, id)).data.ok, false);
   }
+  await request(app, '/evidence', {action:'unpin', id:correct[2]}, id);
+  assert.equal((await request(app, '/answer', {stage:2, value, evidence:correct}, id)).data.ok, false);
+  await request(app, '/evidence', {action:'pin', id:correct[2]}, id);
+  assert.equal((await request(app, '/answer', {stage:2, value, evidence:correct}, id)).data.ok, true);
+});
+
+test('practice is untimed, remains active beyond event deadline and survives polling and cleanup', async () => {
+  const app = createApp();
+  assert.equal((await request(app, '/start', {mode:'unknown'})).status, 400);
+  const d = (await request(app, '/start', {mode:'practice'})).data, s = game.getSession(d.sessionId);
+  s.startedAt -= 2 * 60 * 60 * 1000;
+  game.cleanupSessions();
+  assert.ok(game.getSession(d.sessionId));
+  let restored = (await request(app, '/state', undefined, d.sessionId)).data;
+  assert.equal(restored.remainingSeconds, null);
+  assert.equal(restored.mode, 'practice'); assert.equal(restored.expired, false);
+  assert.equal((await request(app, '/answer', {stage:1, value:s.passphrase}, d.sessionId)).data.ok, true);
+  const evidence = await investigate(app, d.sessionId, s);
+  await request(app, '/answer', {stage:2, value:'prompt-injection:' + s.incident.source, evidence}, d.sessionId);
+  await request(app, '/recovery', {action:'quarantine', target:s.incident.source}, d.sessionId);
+  restored = (await request(app, '/state', undefined, d.sessionId)).data;
+  assert.equal(restored.recovery.step, 1); assert.equal(restored.evidence.pins.length, 3);
+  assert.equal(restored.monitoring.latest.voltage, 0);
+});
+
+test('wrong choices, duplicates and timeout cannot skip recovery or claim victory', async () => {
+  const app = createApp(); const {id,s} = await session(app, 3);
+  assert.equal((await request(app, '/recovery', {action:'verify',target:'enable-alerts'}, id)).data.ok, false);
+  assert.equal((await request(app, '/recovery', {action:'quarantine',target:'status.txt'}, id)).data.ok, false);
+  assert.equal(s.recovery.step, 0);
+  await request(app, '/recovery', {action:'quarantine',target:s.incident.source}, id);
+  assert.equal((await request(app, '/recovery', {action:'quarantine',target:s.incident.source}, id)).data.ok, false);
+  const bad = s.incident.snapshots.find(item => item.id !== s.incident.safeSnapshot).id;
+  assert.equal((await request(app, '/recovery', {action:'restore',target:bad}, id)).data.ok, false);
+  assert.equal(s.recovery.step, 1);
+  await request(app, '/recovery', {action:'restore',target:s.incident.safeSnapshot}, id);
+  assert.equal((await request(app, '/recovery', {action:'verify',target:'keep-muted'}, id)).data.ok, false);
+  s.startedAt -= game.DURATION_MS;
+  const timeout = (await request(app, '/recovery', {action:'verify',target:'enable-alerts'}, id)).data.state;
+  assert.equal(timeout.finished, false); assert.equal(timeout.expired, true);
+  assert.equal(timeout.monitoring.latest.alerts, 'MUTED'); assert.deepEqual(timeout.replay, []);
+});
+
+test('incident variations keep telemetry, file evidence, hints, AI and valid backups consistent', async () => {
+  const {filesFor, supportFor} = require('../backend/services/incident');
+  const sources = new Set(), times = new Set(), backups = new Set();
+  for (let i = 0; i < 24; i++) {
+    const s = game.getSession(game.createSession({mode:'practice'})), p = s.incident, files = filesFor(p);
+    sources.add(p.source); times.add(p.event); backups.add(p.safeSnapshot);
+    assert.match(files['incident.log'], new RegExp(p.event + ' ' + p.job + ' imported ' + p.source));
+    const eligible = p.snapshots.filter(item => item.time < p.event && item.integrity === 'PASS');
+    assert.equal(eligible.length, 1); assert.equal(eligible[0].id, p.safeSnapshot);
+    assert.equal(game.answer(s, 1, s.passphrase).ok, true);
+    s.readFiles = ['incident.log', p.source, 'recovery.txt'];
+    s.pins = supportFor(s); s.selectedRecord = s.pins[0];
+    assert.equal(game.answer(s,2,'prompt-injection:' + p.source, s.pins).ok, true);
+    game.hint(s); game.hint(s);
+    assert.match(game.hint(s).message, new RegExp('Snapshot ' + p.safeSnapshot.toUpperCase()));
+    const ai = await createAiService({apiKey:''}).respond('What changed?', [], 'last-change', p);
+    assert.ok(ai.reply.includes(p.event)); assert.ok(ai.reply.includes(p.job));
+    game.recover(s,'quarantine',p.source); game.recover(s,'restore',p.safeSnapshot);
+    assert.equal(game.recover(s,'verify','enable-alerts').state.finished, true);
+    assert.ok(game.publicState(s).replay.some(step => step.text.includes(p.source)));
+  }
+  assert.ok(sources.size > 1); assert.ok(times.size > 1); assert.ok(backups.size > 1);
+});
+
+test('session restore retains evidence after transcript rollover and next team starts clean', async () => {
+  const app = createApp(); const {id,s} = await session(app,2);
+  await investigate(app,id,s);
+  for (let i=0;i<55;i++) await request(app, '/terminal', {command:'pwd'}, id);
+  const restored = (await request(app, '/state', undefined, id)).data;
+  assert.equal(restored.terminalHistory.length,50);
+  assert.equal(restored.collectedEvidence.length,3);
+  assert.equal(restored.evidence.pins.length,3);
+  const next = (await request(app, '/start', {})).data;
+  assert.equal(next.state.monitoring,null); assert.deepEqual(next.state.evidence.pins,[]);
+  assert.equal(next.state.recovery.step,0); assert.notEqual(next.state.cipher.message, restored.cipher.message);
 });

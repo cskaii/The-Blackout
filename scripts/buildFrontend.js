@@ -11,6 +11,7 @@ function backendOrigin(value) {
   return url.origin;
 }
 function build() {
+  require('./checkSyntax').checkSyntax();
   const origin = backendOrigin(process.env.BACKEND_URL);
   const root = path.resolve(__dirname, '..');
   const output = path.join(root, 'dist');
