@@ -145,11 +145,15 @@ state.ai.configured means a key is present, not that Google has verified it.
 | Field | Frontend use |
 | --- | --- |
 | stage | Render Stage 1, 2 or 3; check finished/expired before rendering a playable screen |
+| revision | Increasing session mutation counter; discard snapshots older than the current revision |
+| monitoring | null before Stage 2; otherwise phase, restored, controllerReport, gridStatus, voltage, alertsStatus, comparison and samples. Samples contain time, voltage, grid, alerts and report |
 | remainingSeconds | Authoritative countdown; poll /api/state about once per second |
 | finished / expired | Show success or timeout and disable mission controls |
 | cipher.message | Display the encrypted phrase |
 | cipher.failedCells | Build the eight-cell backup clue |
 | readFiles / evidenceReady | Show investigation progress |
+| requiredFiles | Files counted toward mandatory investigation progress; optional files do not increase this count |
+| collectedEvidence | Examined files as { file, content }; retained independently of the rolling terminal transcript for Stage 3 and refresh |
 | hintsUsed | Display total hints on completion |
 | revealedHints | Stage number mapped to the latest revealed { level, total, message } |
 | terminalHistory | Last 50 { command, output } entries, available for refresh and evidence review |
@@ -238,3 +242,20 @@ Use npm test for backend regression checks. It does not replace browser testing 
 - Live Gemini: the user confirmed a successful minimal request to gemini-3.1-flash-lite; full live game-prompt verification is separate from mocked tests.
 - Browser rendering, contrast, keyboard interaction and screen-size checks require a browser; the checklist above distinguishes implementation from independent visual verification.
 Browser-check attempt: local HTTP access returned EACCES; the available Chrome window remained minimized and the computer-use interface could not inspect it. Independent visual and keyboard verification remains unchecked.
+
+## 8. Flow and reliability update (2026-11-19)
+
+- Aligned the imported instruction, incident timeline and AI story: the compromised controller disconnected grid output and silenced alarms.
+- Clarified the workspace unlock and first investigation commands; added an optional attack-type reference and an accurate required-evidence count.
+- Stage 3 displays examined file contents immediately. Evidence survives the 50-command transcript limit and refresh.
+- Polling recovers terminal output and evidence after a lost command response. Revision checks discard older responses, including stale AI pending flags.
+- Countdown updates preserve elapsed fractional seconds. A server-confirmed final success can replace a local timeout when the answer response arrives late.
+- Automated verification: 37 passing tests, frontend syntax check and whitespace check. Browser tools were unavailable in this session, so independent visual and keyboard checks remain outstanding.
+
+## 9. Monitoring dashboard (2026-11-19)
+
+- Added a visible dashboard above the investigation, unlocked by the correct Stage 1 phrase and retained through Stage 3 and the result screen.
+- Independent sensor cards contrast the controller report with physical grid status, supply voltage and safety alerts. A voltage trend and accessible readings table show the change from 02:10 to 02:14 and 02:15.
+- The server provides fictional mission records. Only successful recovery adds an ONLINE / 230 V / ENABLED record; wrong answers and timeout retain the outage. No Gemini request is needed for the dashboard.
+- Refresh restores the dashboard from server state; a new team or missing session hides it until the workspace is unlocked again.
+- Automated verification: 42 passing tests covering dashboard unlock, recovery, expiry, refresh data, reset, safe text rendering and the existing mission. Independent browser visual and keyboard checks remain pending.

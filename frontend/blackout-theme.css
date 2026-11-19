@@ -296,3 +296,39 @@ button:hover:not(:disabled) { background: #c35336; }
 @media (prefers-reduced-motion: reduce) {
   body::after { animation: none; transform: none; opacity: .35; }
 }
+
+/* Sensor records are separate from the compromised controller's claims. */
+.monitoring-dashboard[hidden] { display: none; }
+.monitoring-dashboard { margin-bottom: 22px; border-top: 3px solid #e6a665; }
+.monitoring-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.monitoring-heading h2 { margin: 8px 0; font-size: clamp(24px, 4vw, 32px); }
+.monitoring-phase { padding: 8px 10px; color: #ffd39b; border: 1px solid #956a47; font: 10px/1.6 var(--mono); }
+.monitoring-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+.monitoring-metrics > div { min-width: 0; padding: 16px 12px; background: #09090e; border: 1px solid #694953; }
+.monitoring-metrics dt { color: #ddc4c5; font: 11px/1.6 var(--mono); }
+.monitoring-metrics dd { margin: 8px 0; color: #ffd39b; font: bold clamp(17px, 2.5vw, 24px)/1.3 var(--mono); overflow-wrap: anywhere; }
+.monitoring-metrics small { color: #baa7b4; font: 10px/1.6 var(--mono); }
+.monitoring-comparison { border-left: 3px solid #f1ab68; background: #e59b4d0a; padding: 12px 16px; color: #f7dfca; }
+.monitoring-restored { border-top-color: #83e6b8; }
+.monitoring-restored .monitoring-phase, .monitoring-restored .monitoring-metrics dd { color: #a1f0cb; }
+.monitoring-restored .monitoring-comparison { border-color: #83e6b8; }
+.monitoring-chart { display: block; width: 100%; max-height: 180px; margin: 12px 0; background: #09090e; }
+.monitoring-chart text { fill: #d7c6ce; font: 12px var(--mono); }
+.monitoring-chart-grid { stroke: #513b47; fill: none; }
+#monitoring-trend { stroke: #ffc185; stroke-width: 3; fill: none; stroke-linejoin: round; }
+.monitoring-restored #monitoring-trend { stroke: #83e6b8; }
+.monitoring-table-wrap { overflow-x: auto; }
+.monitoring-table-wrap:focus-visible { outline: 2px solid var(--cyan); outline-offset: 4px; }
+.monitoring-table { width: 100%; border-collapse: collapse; font: 11px/1.6 var(--mono); text-align: left; }
+.monitoring-table caption { text-align: left; color: #c6b0bd; padding-bottom: 8px; }
+.monitoring-table th, .monitoring-table td { padding: 9px 10px; border-bottom: 1px solid #503742; white-space: nowrap; }
+.monitoring-table th { color: #f1cfb6; }
+@media (max-width: 650px) {
+  .monitoring-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .monitoring-metrics > div { padding: 12px 9px; }
+  .monitoring-metrics dd { font-size: 17px; }
+}
+@media (forced-colors: active) {
+  .monitoring-chart text { fill: CanvasText; }
+  .monitoring-chart-grid, #monitoring-trend, .monitoring-restored #monitoring-trend { stroke: CanvasText; }
+}

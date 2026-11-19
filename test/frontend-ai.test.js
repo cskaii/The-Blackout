@@ -22,8 +22,64 @@ function frontend() {
   });
   vm.runInContext(fs.readFileSync('frontend/app.js', 'utf8'), context);
   vm.runInContext("state = { stage: 2, finished: false, expired: false, ai: { pending: false, remainingRequests: 4, history: [] } }; sessionId = 'team-a';", context);
-  return { context, elements, storage, intervals };
+  return { context, elements, storage, intervals, element };
 }
+
+function monitoringFrontend() {
+  const f = frontend();
+  for (const id of ['dashboard', 'phase', 'report', 'grid', 'voltage', 'alerts', 'comparison', 'readings', 'trend', 'chart-end']) {
+    f.elements.set('#monitoring-' + id, f.element());
+  }
+  return f;
+}
+
+test('monitoring is locked for Stage 1 and shows independent readings after unlock', () => {
+  const { context, elements } = monitoringFrontend();
+  const { monitoringState } = require('../backend/services/monitoring');
+  context.records = monitoringState({ stage: 2, finished: false }, false);
+  vm.runInContext('state.stage = 1; state.monitoring = null; syncMonitoring();', context);
+  assert.equal(elements.get('#monitoring-dashboard').hidden, true);
+  vm.runInContext('state.stage = 2; state.monitoring = records; syncMonitoring();', context);
+  assert.equal(elements.get('#monitoring-dashboard').hidden, false);
+  assert.equal(elements.get('#monitoring-report').textContent, 'ALL CLEAR');
+  assert.equal(elements.get('#monitoring-grid').textContent, 'OFFLINE');
+  assert.equal(elements.get('#monitoring-voltage').textContent, '0 V');
+  assert.equal(elements.get('#monitoring-alerts').textContent, 'MUTED');
+  const rows = elements.get('#monitoring-readings');
+  assert.equal(rows.children.length, 3);
+  assert.equal(rows.children[1].children[0].textContent, '02:14');
+  assert.equal(rows.children[1].children[1].textContent, '0 V');
+  assert.equal(elements.get('#monitoring-trend').attributes.points, '60,25 320,120 580,120');
+  const firstRow = rows.children[0];
+  vm.runInContext('syncMonitoring();', context);
+  assert.equal(rows.children[0], firstRow);
+});
+
+test('recovered dashboard renders restored readings and hides on session loss or next team', () => {
+  const { context, elements } = monitoringFrontend();
+  const { monitoringState } = require('../backend/services/monitoring');
+  context.records = monitoringState({ stage: 3, finished: true }, false);
+  vm.runInContext('state.stage = 3; state.finished = true; state.monitoring = records; syncMonitoring();', context);
+  assert.equal(elements.get('#monitoring-phase').textContent, 'RESTORATION VERIFIED');
+  assert.equal(elements.get('#monitoring-grid').textContent, 'ONLINE');
+  assert.equal(elements.get('#monitoring-voltage').textContent, '230 V');
+  assert.equal(elements.get('#monitoring-alerts').textContent, 'ENABLED');
+  assert.equal(elements.get('#monitoring-readings').children.length, 4);
+  assert.equal(elements.get('#monitoring-chart-end').textContent, 'After override');
+  vm.runInContext('resetMissingSession();', context);
+  assert.equal(elements.get('#monitoring-dashboard').hidden, true);
+  vm.runInContext('state = { stage: 1, monitoring: null }; syncMonitoring();', context);
+  assert.equal(elements.get('#monitoring-dashboard').hidden, true);
+});
+
+test('monitoring renders record text safely', () => {
+  const { context, elements } = monitoringFrontend();
+  const { monitoringState } = require('../backend/services/monitoring');
+  context.records = monitoringState({ stage: 2, finished: false }, false);
+  context.records.samples[0].report = '<img src=x onerror=alert(1)>';
+  vm.runInContext('state.monitoring = records; syncMonitoring();', context);
+  assert.equal(elements.get('#monitoring-readings').children[0].children[4].textContent, '<img src=x onerror=alert(1)>');
+});
 
 test('AI dialogue renders untrusted replies as text and disables controls during loading', () => {
   const { context, elements } = frontend();
@@ -182,4 +238,56 @@ test('late AI replies cannot overwrite a new team', async () => {
   await pending;
   assert.equal(vm.runInContext('state.ai.history.length', context), 0);
   assert.equal(vm.runInContext('aiBusy', context), false);
+});
+
+test('delayed snapshots preserve elapsed time including fractional seconds', () => {
+  const { context, elements } = frontend();
+  vm.runInContext(`
+    state.remainingSeconds = 10; state.readFiles = []; state.revealedHints = {};
+    stateReceivedAt = Date.now() - 6500;
+    const previousDeadline = stateReceivedAt + state.remainingSeconds * 1000;
+    update({ ...state, remainingSeconds: 9 });
+    if (stateReceivedAt + state.remainingSeconds * 1000 !== previousDeadline) throw Error('Deadline moved');
+  `, context);
+  assert.equal(elements.get('#timer').textContent, '00:04');
+});
+
+test('server-confirmed victory replaces a local timeout when the final response arrives late', () => {
+  const { context, elements } = frontend();
+  vm.runInContext(`
+    state.stage = 3; state.expired = true; state.remainingSeconds = 0; state.readFiles = [];
+    let renders = 0; render = () => { renders++; };
+    update({ ...state, finished: true, expired: false, remainingSeconds: 1 });
+  `, context);
+  assert.equal(vm.runInContext('state.finished', context), true);
+  assert.equal(vm.runInContext('renders', context), 1);
+  assert.equal(elements.get('#stage').textContent, 'MISSION COMPLETE');
+});
+
+test('polling recovers evidence and terminal output after a lost command response', () => {
+  const { context, elements } = frontend();
+  const output = { textContent: '', scrollHeight: 100 };
+  const evidence = { textContent: '' };
+  elements.set('#output', output);
+  elements.set('#evidence', evidence);
+  vm.runInContext(`
+    state.remainingSeconds = 80; state.readFiles = []; state.revealedHints = {};
+    update({ ...state, readFiles: ['incident.log', 'status.txt'],
+      requiredFiles: ['incident.log', 'update.txt', 'recovery.txt'], evidenceReady: false,
+      terminalHistory: [{ command: 'cat incident.log', output: 'Recovered timeline' }] });
+  `, context);
+  assert.match(output.textContent, /cat incident.log\nRecovered timeline/);
+  assert.equal(output.scrollTop, 100);
+  assert.match(evidence.textContent, /1 \/ 3/);
+});
+
+test('older revision cannot erase a terminal command or reintroduce pending AI', () => {
+  const { context } = frontend();
+  vm.runInContext(`
+    state.revision = 5; state.remainingSeconds = 80; state.readFiles = []; state.revealedHints = {};
+    state.terminalHistory = [{ command: 'ls', output: 'Files' }];
+    update({ ...state, revision: 4, terminalHistory: [], ai: { ...state.ai, pending: true } });
+  `, context);
+  assert.equal(vm.runInContext('state.terminalHistory.length', context), 1);
+  assert.equal(vm.runInContext('state.ai.pending', context), false);
 });

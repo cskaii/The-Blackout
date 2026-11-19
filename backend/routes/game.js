@@ -24,12 +24,13 @@ function createGameRouter(ai = createAiService(config)) {
     res.json(game.answer(req.game, stage, req.body.value));
   });
   router.post('/terminal', requireText, (req, res) => {
-    if (!game.valid(req.game) || req.game.stage !== 2) return res.status(403).json({ error: 'Terminal is locked or session ended.' });
+    if (!game.valid(req.game) || req.game.stage !== 2) return res.status(403).json({ error: 'Terminal is locked or session ended.', state: game.publicState(req.game) });
     const output = run(req.body.command);
     const file = readFileName(req.body.command);
     if (file && !req.game.readFiles.includes(file)) req.game.readFiles.push(file);
     req.game.terminalHistory.push({ command: req.body.command, output });
     req.game.terminalHistory = req.game.terminalHistory.slice(-50);
+    req.game.revision++;
     res.json({ output, state: game.publicState(req.game) });
   });
   router.post('/ai', (req, res, next) => {
@@ -55,15 +56,19 @@ function createGameRouter(ai = createAiService(config)) {
     session.aiPending = true;
     session.aiRequests++;
     session.aiLastAt = Date.now();
+    session.revision++;
     try {
       const response = await ai.respond(req.aiMessage, session.aiHistory, req.aiQuestionId);
+      session.aiPending = false;
+      session.revision++;
       if (!game.valid(session) || session.stage !== 2) {
         return res.status(403).json({ error: 'AI response discarded because the stage or mission ended.', state: game.publicState(session) });
       }
       session.aiHistory.push({ question: req.aiMessage, ...response });
-      session.aiPending = false;
       res.json({ ...response, state: game.publicState(session) });
     } catch {
+      session.aiPending = false;
+      session.revision++;
       res.status(503).json({ error: 'AI channel unavailable. Continue using terminal evidence and hints.' });
     } finally { session.aiPending = false; }
   });

@@ -1,6 +1,8 @@
 const crypto = require('node:crypto');
 const config = require('../config');
 const { QUESTIONS } = require('./aiService');
+const { run } = require('./virtualLinux');
+const { monitoringState } = require('./monitoring');
 const sessions = new Map();
 const DURATION_MS = 5 * 60 * 1000;
 const REQUIRED_FILES = ['incident.log', 'update.txt', 'recovery.txt'];
@@ -17,7 +19,7 @@ function createSession() {
   const passphrase = choices[crypto.randomInt(choices.length)];
   previousPhrase = passphrase;
   sessions.set(id, {
-    stage: 1, passphrase, shift: crypto.randomInt(3, 8), startedAt: Date.now(),
+    stage: 1, revision: 0, passphrase, shift: crypto.randomInt(3, 8), startedAt: Date.now(),
     finished: false, readFiles: [], hints: { 1: 0, 2: 0, 3: 0 },
     hintMessages: {}, terminalHistory: [], aiHistory: [], aiRequests: 0, aiPending: false, aiLastAt: 0
   });
@@ -28,10 +30,14 @@ function publicState(s) {
   const elapsed = (s.finishedAt ?? Date.now()) - s.startedAt;
   return {
     stage: s.stage,
+    revision: s.revision,
     remainingSeconds: Math.max(0, Math.ceil((DURATION_MS - elapsed) / 1000)),
     finished: s.finished,
     expired: !s.finished && elapsed >= DURATION_MS,
+    monitoring: monitoringState(s, !s.finished && elapsed >= DURATION_MS),
     readFiles: [...s.readFiles],
+    requiredFiles: [...REQUIRED_FILES],
+    collectedEvidence: s.readFiles.map(file => ({ file, content: run('cat ' + file) })),
     evidenceReady: REQUIRED_FILES.every(file => s.readFiles.includes(file)),
     cipher: { message: encrypt(s.passphrase, s.shift), failedCells: s.shift },
     hintsUsed: Object.values(s.hints).reduce((sum, count) => sum + count, 0),
@@ -61,6 +67,7 @@ function answer(s, stage, value) {
     s.finished = true;
     s.finishedAt = Date.now();
   } else s.stage++;
+  s.revision++;
   return result(true, s.finished ? 'Power restored. Mission complete!' : 'Verified. Next stage unlocked.');
 }
 function hint(s) {
@@ -86,6 +93,7 @@ function hint(s) {
   const index = Math.min(s.hints[s.stage], 2);
   s.hints[s.stage] = Math.min(index + 1, 3);
   s.hintMessages[s.stage] = { level: index + 1, total: 3, message: hints[s.stage][index] };
+  s.revision++;
   return { ok: true, level: index + 1, total: 3, message: hints[s.stage][index], state: publicState(s) };
 }
 function cleanupSessions() {
