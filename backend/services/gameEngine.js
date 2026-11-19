@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 const config = require('../config');
 const { QUESTIONS } = require('./aiService');
 const { run } = require('./virtualLinux');
+const { monitoringState } = require('./monitoring');
 const sessions = new Map();
 const DURATION_MS = 5 * 60 * 1000;
 const REQUIRED_FILES = ['incident.log', 'update.txt', 'recovery.txt'];
@@ -33,6 +34,7 @@ function publicState(s) {
     remainingSeconds: Math.max(0, Math.ceil((DURATION_MS - elapsed) / 1000)),
     finished: s.finished,
     expired: !s.finished && elapsed >= DURATION_MS,
+    monitoring: monitoringState(s, !s.finished && elapsed >= DURATION_MS),
     readFiles: [...s.readFiles],
     requiredFiles: [...REQUIRED_FILES],
     collectedEvidence: s.readFiles.map(file => ({ file, content: run('cat ' + file) })),

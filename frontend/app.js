@@ -28,6 +28,7 @@ function resetMissingSession() {
   try { sessionStorage.removeItem('blackout-session'); } catch {}
   sessionId = null;
   state = null;
+  syncMonitoring();
   aiBusy = false;
   aiCooldownUntil = 0;
   screen.innerHTML = initialBrief;
@@ -85,6 +86,7 @@ function update(s) {
   const endedBefore = state?.expired || state?.finished;
   state = s;
   stateReceivedAt = receivedAt;
+  syncMonitoring();
   Object.assign(hintHistory, s.revealedHints);
   if (s.terminalHistory) {
     terminalHistory = 'BLACKOUT RESPONSE CONSOLE\nWorkspace mounted. Type help for command syntax.' + s.terminalHistory.map(turn => '\n\nanalyst@blackout:~$ ' + turn.command + '\n' + turn.output).join('');
@@ -177,7 +179,44 @@ async function answer(stage, value) {
   } catch (e) { if (currentSession === sessionId) { formMessage(form, e.message); notice.textContent = e.message; } }
   finally { busy = false; loading(form, false); }
 }
-function focusTitle() { screen.querySelector('h2')?.focus(); }
+function focusTitle() {
+  const dashboardTitle = state?.monitoring && (state.stage === 2 || state.finished) ? document.querySelector('#monitoring-title') : null;
+  (dashboardTitle || screen.querySelector('h2'))?.focus();
+}
+function syncMonitoring() {
+  const dashboard = document.querySelector('#monitoring-dashboard');
+  if (!dashboard) return;
+  const data = state?.monitoring;
+  dashboard.hidden = !data || state.stage < 2;
+  if (dashboard.hidden) return;
+  dashboard.classList.toggle('monitoring-restored', data.restored);
+  for (const [id, value] of Object.entries({
+    phase: state.expired && !state.finished ? 'RESPONSE WINDOW CLOSED' : data.phase,
+    report: data.controllerReport, grid: data.gridStatus,
+    voltage: data.voltage + ' V', alerts: data.alertsStatus, comparison: data.comparison
+  })) {
+    const field = document.querySelector('#monitoring-' + id);
+    if (field.textContent !== value) field.textContent = value;
+  }
+  const rows = document.querySelector('#monitoring-readings');
+  const signature = JSON.stringify(data.samples);
+  if (rows.dataset.signature === signature) return;
+  rows.replaceChildren();
+  for (const sample of data.samples) {
+    const row = document.createElement('tr');
+    for (const value of [sample.time, sample.voltage + ' V', sample.grid, sample.alerts, sample.report]) {
+      const cell = document.createElement('td');
+      cell.textContent = value;
+      row.append(cell);
+    }
+    rows.append(row);
+  }
+  rows.dataset.signature = signature;
+  // Record positions are equally spaced; the table supplies exact timestamps.
+  const points = data.samples.map((sample, i) => (60 + i * 520 / Math.max(1, data.samples.length - 1)) + ',' + (120 - sample.voltage / 230 * 95));
+  document.querySelector('#monitoring-trend').setAttribute('points', points.join(' '));
+  document.querySelector('#monitoring-chart-end').textContent = data.samples.at(-1)?.time || '';
+}
 function render() {
   if (!state) return;
   notice.textContent = '';
@@ -191,7 +230,7 @@ function render() {
     return;
   }
   if (state.stage === 1) {
-    screen.innerHTML = '<span class="eyebrow">STAGE 01 // TARGET: 1 MINUTE</span><h2 id="screen-title" tabindex="-1">Crack the Code</h2><p>First, unlock the analyst workspace. Decode the intercepted access phrase using the encoder settings on the backup panel and the cipher wheel.</p><div class="cipher-message" id="cipher-message"></div><div class="backup-panel"><span class="eyebrow">BACKUP PANEL / ENCODER MEMORY</span><p>Encryption direction: FORWARD<br>Cipher key: count the cells marked FAILED. Cell numbers are identifiers, not the key.</p><div id="backup-cells" class="backup-cells" role="group" aria-label="Backup cell status"></div></div><div class="cipher-layout"><svg id="wheel" viewBox="0 0 300 300" role="img" aria-label="Adjustable Caesar wheel: outer ring is encrypted; inner ring is decoded"></svg><div class="wheel-controls"><label for="wheel-shift">Wheel offset</label><select id="wheel-shift" aria-describedby="wheel-feedback wheel-instructions"></select><p id="wheel-feedback" role="status" aria-live="polite"></p><p class="muted" id="wheel-instructions">Match each intercepted letter on the outer ring to the inner letter directly beneath it. Enter both decoded words below, then select Unlock system.</p><details class="wheel-table"><summary>View letter pairs as text</summary><p id="wheel-pairs"></p></details></div></div><form id="decode"><label for="answer">Decoded access phrase</label><div class="input-row"><input id="answer" maxlength="150" autocomplete="off" placeholder="Enter both decoded words" required><button>Unlock system &rarr;</button></div></form>';
+    screen.innerHTML = '<span class="eyebrow">STAGE 01 // TARGET: 1 MINUTE</span><h2 id="screen-title" tabindex="-1">Crack the Code</h2><p>First, unlock the monitoring dashboard and analyst workspace. Decode the intercepted access phrase using the encoder settings on the backup panel and the cipher wheel.</p><div class="cipher-message" id="cipher-message"></div><div class="backup-panel"><span class="eyebrow">BACKUP PANEL / ENCODER MEMORY</span><p>Encryption direction: FORWARD<br>Cipher key: count the cells marked FAILED. Cell numbers are identifiers, not the key.</p><div id="backup-cells" class="backup-cells" role="group" aria-label="Backup cell status"></div></div><div class="cipher-layout"><svg id="wheel" viewBox="0 0 300 300" role="img" aria-label="Adjustable Caesar wheel: outer ring is encrypted; inner ring is decoded"></svg><div class="wheel-controls"><label for="wheel-shift">Wheel offset</label><select id="wheel-shift" aria-describedby="wheel-feedback wheel-instructions"></select><p id="wheel-feedback" role="status" aria-live="polite"></p><p class="muted" id="wheel-instructions">Match each intercepted letter on the outer ring to the inner letter directly beneath it. Enter both decoded words below, then select Unlock system.</p><details class="wheel-table"><summary>View letter pairs as text</summary><p id="wheel-pairs"></p></details></div></div><form id="decode"><label for="answer">Decoded access phrase</label><div class="input-row"><input id="answer" maxlength="150" autocomplete="off" placeholder="Enter both decoded words" required><button>Unlock system &rarr;</button></div></form>';
     document.querySelector('#cipher-message').textContent = state.cipher.message;
     const cells = document.querySelector('#backup-cells');
     for (let i = 0; i < 8; i++) {
@@ -228,7 +267,7 @@ function render() {
     buildWheel();
     document.querySelector('#decode').onsubmit = e => { e.preventDefault(); answer(1, document.querySelector('#answer').value); };
   } else if (state.stage === 2) {
-    screen.innerHTML = '<span class="eyebrow">STAGE 02 // TARGET: 2 MINUTES</span><h2 id="screen-title" tabindex="-1">The Corrupted AI</h2><p>The display says ALL CLEAR, but the grid is offline. Trace what changed the assistant behaviour and identify the attack and its source. Locate the recovery inventory before leaving.</p><p class="muted">Start with <code>ls</code> to list files, then <code>cat incident.log</code> to read the timeline. Use <code>help</code> for command syntax. File names are case-sensitive.</p><div class="terminal-bar"><span>analyst@blackout</span><span>INVESTIGATION CONSOLE</span></div><pre id="output" role="log" aria-live="polite" aria-label="Terminal output"></pre><form id="terminal"><label for="command">Terminal command</label><div class="input-row"><input id="command" maxlength="150" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter command" required><button>Execute</button></div></form><p id="evidence" class="muted" role="status"></p><form id="diagnosis"><h3>Submit your diagnosis</h3><details class="attack-reference"><summary>Attack types explained</summary><p>Credential theft steals login secrets. Training data poisoning alters the examples used to train a model. Prompt injection puts instructions in an input to redirect an AI during use. Denial of service overwhelms a service so people cannot use it.</p></details><div class="plan-grid"><div><label for="threat">Attack type</label><select id="threat" required><option value="">Select attack</option><option value="credential-theft">Credential theft</option><option value="data-poisoning">Training data poisoning</option><option value="prompt-injection">Prompt injection</option><option value="denial-of-service">Denial of service</option></select></div><div><label for="source">Source file</label><select id="source" required><option value="">Select source</option><option>status.txt</option><option>recovery.txt</option><option>update.txt</option><option>incident.log</option></select></div></div><button>Verify diagnosis &rarr;</button></form>';
+    screen.innerHTML = '<span class="eyebrow">STAGE 02 // TARGET: 2 MINUTES</span><h2 id="screen-title" tabindex="-1">The Corrupted AI</h2><p>Compare the monitoring dashboard above: the AI says ALL CLEAR, but independent sensors show the grid is offline. Trace what changed the assistant behaviour and identify the attack and its source. Locate the recovery inventory before leaving.</p><p class="muted">Start with <code>ls</code> to list files, then <code>cat incident.log</code> to read the timeline. Use <code>help</code> for command syntax. File names are case-sensitive.</p><div class="terminal-bar"><span>analyst@blackout</span><span>INVESTIGATION CONSOLE</span></div><pre id="output" role="log" aria-live="polite" aria-label="Terminal output"></pre><form id="terminal"><label for="command">Terminal command</label><div class="input-row"><input id="command" maxlength="150" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter command" required><button>Execute</button></div></form><p id="evidence" class="muted" role="status"></p><form id="diagnosis"><h3>Submit your diagnosis</h3><details class="attack-reference"><summary>Attack types explained</summary><p>Credential theft steals login secrets. Training data poisoning alters the examples used to train a model. Prompt injection puts instructions in an input to redirect an AI during use. Denial of service overwhelms a service so people cannot use it.</p></details><div class="plan-grid"><div><label for="threat">Attack type</label><select id="threat" required><option value="">Select attack</option><option value="credential-theft">Credential theft</option><option value="data-poisoning">Training data poisoning</option><option value="prompt-injection">Prompt injection</option><option value="denial-of-service">Denial of service</option></select></div><div><label for="source">Source file</label><select id="source" required><option value="">Select source</option><option>status.txt</option><option>recovery.txt</option><option>update.txt</option><option>incident.log</option></select></div></div><button>Verify diagnosis &rarr;</button></form>';
     document.querySelector('#output').textContent = terminalHistory;
     mountAiPanel();
     updateEvidence();
@@ -238,7 +277,7 @@ function render() {
       answer(2, document.querySelector('#threat').value + ':' + document.querySelector('#source').value);
     };
   } else if (state.stage === 3) {
-    screen.innerHTML = '<span class="eyebrow">STAGE 03 // TARGET: 1 MINUTE</span><h2 id="screen-title" tabindex="-1">Emergency Override</h2><p>Diagnosis verified. Contain the imported source, choose a clean backup from before the incident, and restore safety monitoring. Use your collected evidence below to build the recovery plan.</p><details class="evidence-card" open><summary>Review collected evidence</summary><pre id="collected-evidence"></pre></details><form id="recovery"><div class="plan-grid"><div><label for="containment">01 / Quarantine source</label><select id="containment" required><option value="">Select file</option><option>incident.log</option><option>update.txt</option><option>recovery.txt</option><option>status.txt</option></select></div><div><label for="snapshot">02 / Restore configuration</label><select id="snapshot" required><option value="">Select snapshot</option><option value="a">Snapshot A</option><option value="b">Snapshot B</option><option value="c">Snapshot C</option></select></div><div><label for="safety">03 / Final safety action</label><select id="safety" required><option value="">Select action</option><option value="clear-logs">Clear incident history</option><option value="keep-muted">Keep alerts muted</option><option value="enable-alerts">Re-enable safety alerts</option><option value="trust-imports">Trust all maintenance imports</option></select></div></div><button>Execute emergency override &rarr;</button></form>';
+    screen.innerHTML = '<span class="eyebrow">STAGE 03 // TARGET: 1 MINUTE</span><h2 id="screen-title" tabindex="-1">Emergency Override</h2><p>Diagnosis verified. Contain the imported source, choose a clean backup from before the incident, and restore safety monitoring. Use your collected evidence below to build the recovery plan. The dashboard will confirm restoration only after a safe override.</p><details class="evidence-card" open><summary>Review collected evidence</summary><pre id="collected-evidence"></pre></details><form id="recovery"><div class="plan-grid"><div><label for="containment">01 / Quarantine source</label><select id="containment" required><option value="">Select file</option><option>incident.log</option><option>update.txt</option><option>recovery.txt</option><option>status.txt</option></select></div><div><label for="snapshot">02 / Restore configuration</label><select id="snapshot" required><option value="">Select snapshot</option><option value="a">Snapshot A</option><option value="b">Snapshot B</option><option value="c">Snapshot C</option></select></div><div><label for="safety">03 / Final safety action</label><select id="safety" required><option value="">Select action</option><option value="clear-logs">Clear incident history</option><option value="keep-muted">Keep alerts muted</option><option value="enable-alerts">Re-enable safety alerts</option><option value="trust-imports">Trust all maintenance imports</option></select></div></div><button>Execute emergency override &rarr;</button></form>';
     document.querySelector('#collected-evidence').textContent = state.collectedEvidence?.length
       ? state.collectedEvidence.map(item => item.file + '\n' + item.content).join('\n\n')
       : terminalHistory;

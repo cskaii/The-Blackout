@@ -146,6 +146,7 @@ state.ai.configured means a key is present, not that Google has verified it.
 | --- | --- |
 | stage | Render Stage 1, 2 or 3; check finished/expired before rendering a playable screen |
 | revision | Increasing session mutation counter; discard snapshots older than the current revision |
+| monitoring | null before Stage 2; otherwise phase, restored, controllerReport, gridStatus, voltage, alertsStatus, comparison and samples. Samples contain time, voltage, grid, alerts and report |
 | remainingSeconds | Authoritative countdown; poll /api/state about once per second |
 | finished / expired | Show success or timeout and disable mission controls |
 | cipher.message | Display the encrypted phrase |
@@ -250,3 +251,11 @@ Browser-check attempt: local HTTP access returned EACCES; the available Chrome w
 - Polling recovers terminal output and evidence after a lost command response. Revision checks discard older responses, including stale AI pending flags.
 - Countdown updates preserve elapsed fractional seconds. A server-confirmed final success can replace a local timeout when the answer response arrives late.
 - Automated verification: 37 passing tests, frontend syntax check and whitespace check. Browser tools were unavailable in this session, so independent visual and keyboard checks remain outstanding.
+
+## 9. Monitoring dashboard (2026-11-19)
+
+- Added a visible dashboard above the investigation, unlocked by the correct Stage 1 phrase and retained through Stage 3 and the result screen.
+- Independent sensor cards contrast the controller report with physical grid status, supply voltage and safety alerts. A voltage trend and accessible readings table show the change from 02:10 to 02:14 and 02:15.
+- The server provides fictional mission records. Only successful recovery adds an ONLINE / 230 V / ENABLED record; wrong answers and timeout retain the outage. No Gemini request is needed for the dashboard.
+- Refresh restores the dashboard from server state; a new team or missing session hides it until the workspace is unlocked again.
+- Automated verification: 42 passing tests covering dashboard unlock, recovery, expiry, refresh data, reset, safe text rendering and the existing mission. Independent browser visual and keyboard checks remain pending.

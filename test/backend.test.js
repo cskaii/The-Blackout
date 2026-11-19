@@ -79,6 +79,48 @@ test('collected evidence survives transcript rollover and stays isolated between
   assert.equal((await request(app, '/answer', { stage: 2, value: 'prompt-injection:update.txt' }, a.id)).data.state.stage, 3);
   assert.equal((await request(app, '/answer', { stage: 3, value: 'update.txt:b:enable-alerts' }, a.id)).data.state.finished, true);
 });
+
+test('monitoring unlocks after the cipher and confirms only a successful recovery', async () => {
+  const app = createApp();
+  const { id, s } = await session(app);
+  assert.equal((await request(app, '/state', undefined, id)).data.monitoring, null);
+  const unlocked = (await request(app, '/answer', { stage: 1, value: s.passphrase }, id)).data.state.monitoring;
+  assert.equal(unlocked.controllerReport, 'ALL CLEAR');
+  assert.equal(unlocked.gridStatus, 'OFFLINE');
+  assert.equal(unlocked.voltage, 0);
+  assert.equal(unlocked.alertsStatus, 'MUTED');
+  assert.equal(unlocked.samples[0].voltage, 230);
+  assert.equal(unlocked.samples[1].time, '02:14');
+  for (const file of ['incident.log', 'update.txt', 'recovery.txt']) await request(app, '/terminal', { command: 'cat ' + file }, id);
+  const recovery = (await request(app, '/answer', { stage: 2, value: 'prompt-injection:update.txt' }, id)).data.state;
+  assert.equal(recovery.monitoring.phase, 'AWAITING SAFE OVERRIDE');
+  const wrong = (await request(app, '/answer', { stage: 3, value: 'update.txt:a:enable-alerts' }, id)).data;
+  assert.equal(wrong.ok, false);
+  assert.equal(wrong.state.monitoring.restored, false);
+  assert.equal(wrong.state.monitoring.voltage, 0);
+  const success = (await request(app, '/answer', { stage: 3, value: 'update.txt:b:enable-alerts' }, id)).data.state;
+  assert.equal(success.monitoring.phase, 'RESTORATION VERIFIED');
+  assert.equal(success.monitoring.gridStatus, 'ONLINE');
+  assert.equal(success.monitoring.voltage, 230);
+  assert.equal(success.monitoring.alertsStatus, 'ENABLED');
+  assert.equal(success.monitoring.samples.at(-1).time, 'After override');
+  assert.deepEqual((await request(app, '/state', undefined, id)).data.monitoring, success.monitoring);
+  const next = await session(app);
+  assert.equal(game.publicState(next.s).monitoring, null);
+  assert.equal(game.publicState(s).monitoring.restored, true);
+});
+
+test('expired monitoring preserves the outage and exposes no successful recovery record', async () => {
+  const app = createApp();
+  const { id, s } = await session(app, 3);
+  s.startedAt -= game.DURATION_MS;
+  const result = (await request(app, '/answer', { stage: 3, value: 'update.txt:b:enable-alerts' }, id)).data;
+  assert.equal(result.ok, false);
+  assert.equal(result.state.monitoring.phase, 'RESPONSE WINDOW CLOSED');
+  assert.equal(result.state.monitoring.voltage, 0);
+  assert.equal(result.state.monitoring.alertsStatus, 'MUTED');
+  assert.equal(result.state.monitoring.samples.length, 3);
+});
 test('AI needs a valid session, active Stage 2 and valid input', async () => {
   const app = createApp();
   assert.equal((await request(app, '/ai', { message: 'hi' })).status, 401);
