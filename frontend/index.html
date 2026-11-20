@@ -44,6 +44,7 @@
       </dl>
       <p id="monitoring-comparison" class="callout" role="status"></p>
       <p id="monitoring-source" class="muted"></p>
+      <details class="optional-trend"><summary>Optional: view voltage trend</summary>
       <svg class="voltage-chart" viewBox="0 0 600 150" role="img" aria-labelledby="chart-title">
         <title id="chart-title">Supply voltage by recorded event. Exact times and values are in the table below.</title>
         <path d="M60 20H580 M60 110H580" class="chart-grid" />
@@ -51,8 +52,9 @@
         <polyline id="voltage-line" points="" />
         <text x="60" y="140" id="chart-first"></text><text x="580" y="140" text-anchor="end" id="chart-last"></text>
       </svg>
+      </details>
       <div class="table-scroll" tabindex="0" role="region" aria-label="Sensor records and anomaly selection">
-        <table><caption id="record-instructions">Select the FIRST record where voltage and the AI report conflict. Chart points are spaced by record.</caption><thead><tr><th scope="col">Record</th><th scope="col">Voltage</th><th scope="col">Grid</th><th scope="col">Alerts</th><th scope="col">AI report</th><th scope="col">Investigation</th></tr></thead><tbody id="sensor-records"></tbody></table>
+        <table><caption id="record-instructions">When did the power FIRST drop to 0 V while the AI still said ALL CLEAR?</caption><thead><tr><th scope="col">Record</th><th scope="col">Voltage</th><th scope="col">AI report</th><th scope="col">Investigation</th></tr></thead><tbody id="sensor-records"></tbody></table>
       </div>
     </section>
     <p id="notice" role="status" aria-live="polite"></p>
@@ -60,8 +62,9 @@
       <span class="eyebrow">INCIDENT BRIEF // ALL EXPERIENCE LEVELS</span>
       <h2 id="screen-title" tabindex="-1">No power. No alarms.</h2>
       <p>An imported maintenance attachment redirected the AI controller. The grid is offline, but the display still reports ALL CLEAR.</p>
-      <p>Unlock the monitoring dashboard, find the first suspicious reading, connect it to file evidence, then recover the grid one safe step at a time.</p>
+      <p>Unlock the console, spot when the power failed, identify the hidden instruction, and restore the grid.</p>
       <p class="muted">Three stages. One shared five-minute countdown starts when you begin. Hints are available throughout the mission. Each mission varies its incident time, imported source and backup inventory.</p>
+      <div class="command-brief"><h3>Before you begin: how to open a file</h3><p>Type <code>cat</code>, a space, then the filename. For example, <code>cat readme.txt</code> opens a file called readme.txt. Press Enter to run your command.</p><p>The clock starts only when you press Begin mission. Instructions will appear as you go.</p></div>
       <button id="start">Begin mission &rarr;</button>
     </section>
     <footer><span>THE BLACKOUT / OPEN HOUSE</span><span>OBSERVE / INVESTIGATE / VERIFY</span></footer>

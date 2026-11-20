@@ -1,5 +1,5 @@
 let sessionId = null, state = null, ticker = null, busy = false, aiBusy = false, pollBusy = false;
-let wheelShift = 0, selectedEvidenceFile = '', aiCooldownUntil = 0, localDeadline = null;
+let wheelShift = 0, aiCooldownUntil = 0, localDeadline = null;
 const screen = document.querySelector('#screen'), notice = document.querySelector('#notice');
 const initialBrief = screen.innerHTML;
 const names = ['Crack the Code', 'The Corrupted AI', 'Emergency Override'];
@@ -90,7 +90,7 @@ async function start() {
     const d = await api('/start', { mode: 'event' });
     clearInterval(ticker); sessionId = d.sessionId;
     try { sessionStorage.setItem('blackout-session', sessionId); } catch {}
-    state = null; localDeadline = null; wheelShift = 0; selectedEvidenceFile = ''; aiBusy = false; aiCooldownUntil = 0;
+    state = null; localDeadline = null; wheelShift = 0; aiBusy = false; aiCooldownUntil = 0;
     update(d.state); notice.textContent = ''; startPolling();
   } catch (error) { notice.textContent = error.message; }
   finally { busy = false; if (startButton.isConnected) startButton.disabled = false; syncControls(); }
@@ -130,19 +130,19 @@ function syncMonitoring() {
     rows.replaceChildren();
     for (const sample of data.samples) {
       const row = el('tr');
-      for (const value of [sample.time, sample.voltage + ' V', sample.grid, sample.alerts, sample.report]) row.append(el('td', value));
+      for (const value of [sample.time, sample.voltage + ' V', sample.report]) row.append(el('td', value));
       const choice = el('td');
       if (state.stage === 2 && !state.expired) {
         const selected = state.evidence.selectedRecord === 'sensor:' + sample.id;
-        const pick = button(selected ? 'Pinned first anomaly' : 'Mark first anomaly', () => action('/evidence', { action: 'record', id: 'sensor:' + sample.id }));
-        pick.setAttribute('aria-pressed', String(selected)); pick.setAttribute('aria-label', (selected ? 'Pinned first anomaly at ' : 'Mark first anomaly at ') + sample.time);
+        const pick = button(selected ? 'Selected' : 'Choose this time', () => action('/evidence', { action: 'record', id: 'sensor:' + sample.id }));
+        pick.setAttribute('aria-pressed', String(selected)); pick.setAttribute('aria-label', (selected ? 'Selected time ' : 'Choose time ') + sample.time);
         choice.append(pick);
       } else choice.textContent = sample.event;
       row.append(choice); rows.append(row);
     }
     rows.dataset.signature = signature;
   }
-  document.querySelector('#record-instructions').textContent = state.stage === 2 ? 'Select the FIRST record where voltage and the AI report conflict. Chart points are spaced by record.' : 'Confirmed recovery records. Chart points are spaced by record.';
+  document.querySelector('#record-instructions').textContent = state.stage === 2 ? 'When did the power FIRST drop to 0 V while the AI still said ALL CLEAR? Choose one time.' : 'Confirmed recovery records. Chart points are spaced by record.';
   document.querySelector('#voltage-line').setAttribute('points', data.samples.map((sample, i) => (60 + 520 * i / Math.max(1, data.samples.length - 1)) + ',' + (110 - sample.voltage / 230 * 90)).join(' '));
   document.querySelector('#chart-first').textContent = data.samples[0].time;
   document.querySelector('#chart-last').textContent = data.latest.time;
@@ -169,18 +169,17 @@ function render() {
     buildWheel();
     document.querySelector('#decode').onsubmit = e => { e.preventDefault(); action('/answer', { stage: 1, value: document.querySelector('#answer').value }); };
   } else if (state.stage === 2) {
-    screen.innerHTML = '<span class="eyebrow">STAGE 02 // CONTROL ROOM UNLOCKED</span><h2 id="screen-title" tabindex="-1">The Corrupted AI</h2><p>1. Mark the first conflicting record on the dashboard above. 2. Examine files and pin an import log entry and suspicious instruction. 3. Use all three pieces to support your diagnosis.</p><h3>Analyst workspace</h3><div class="terminal-bar"><span>analyst@blackout</span><span>SIMULATED CONSOLE</span></div><pre id="output" role="log" aria-label="Terminal output"></pre><form id="terminal"><label for="command">Terminal command</label><div class="input-row"><input id="command" maxlength="150" autocomplete="off" autocapitalize="off" spellcheck="false" required><button data-mission-action>Execute</button></div></form><p id="evidence-status" role="status" class="muted"></p><div class="evidence-workspace"><h3>Pin file evidence</h3><label for="evidence-file">Examined file</label><select id="evidence-file"></select><div id="evidence-candidates" class="evidence-candidates"></div><h3>Evidence board</h3><p class="muted">Build a chain: physical contradiction → imported input → instruction that redirected the AI. Pinning does not automatically prove a claim.</p><ul id="evidence-board" class="evidence-board"></ul></div><div id="controller-panel"></div><form id="diagnosis"><h3>Submit a supported diagnosis</h3><details><summary>Attack types explained</summary><p>Credential theft steals login secrets. Training data poisoning changes training examples. Prompt injection redirects an AI through instructions in its input. Denial of service overwhelms a service.</p></details><div class="plan-grid"><div><label for="threat">Attack type</label><select id="threat" required><option value="">Choose attack</option><option value="credential-theft">Credential theft</option><option value="data-poisoning">Training data poisoning</option><option value="prompt-injection">Prompt injection</option><option value="denial-of-service">Denial of service</option></select></div><div><label for="source">Source file</label><select id="source" required></select></div><div><label for="support-log">Supporting import log (pinned)</label><select id="support-log" required></select></div><div><label for="support-instruction">Supporting instruction (pinned)</label><select id="support-instruction" required></select></div></div><p id="support-sensor" class="muted"></p><button data-mission-action>Verify diagnosis and evidence →</button></form>';
+    screen.innerHTML = '<span class="eyebrow">STAGE 02 // FIND WHAT WENT WRONG</span><h2 id="screen-title" tabindex="-1">Investigate the blackout</h2><p id="next-step" class="next-step" role="status"></p><h3>Read the files</h3><div class="terminal-bar"><span>analyst@blackout</span><span>INVESTIGATION CONSOLE</span></div><pre id="output" role="log" aria-label="Terminal output"></pre><form id="terminal"><label for="command">Type a command</label><div class="input-row"><input id="command" maxlength="150" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="cat incident.log" required><button data-mission-action>Run command</button></div></form><div id="instruction-picker"><h3>Which line tells the AI what to do?</h3><p class="muted">Choose the suspicious line from a file you have read. You can change your choice.</p><div id="instruction-options" class="instruction-options"></div></div><form id="diagnosis"><h3>What caused the blackout?</h3><p>Choose the attack that matches your selected line.</p><div class="plan-grid"><div><label for="threat">Attack type</label><select id="threat" required><option value="">Choose attack</option><option value="credential-theft">Credential theft (stolen passwords)</option><option value="data-poisoning">Training data poisoning (altered training data)</option><option value="prompt-injection">Prompt injection (hidden instructions)</option><option value="denial-of-service">Denial of service (overloaded service)</option></select></div><div><label for="source">Source file</label><select id="source" required></select><p class="muted">Filled from the line you selected.</p></div></div><button data-mission-action>Check my answer →</button></form><details class="optional-controller"><summary>Optional: question the AI controller</summary><div id="controller-panel"></div></details>';
     document.querySelector('#terminal').onsubmit = e => { e.preventDefault(); execute(document.querySelector('#command').value); };
-    document.querySelector('#evidence-file').onchange = () => { selectedEvidenceFile = document.querySelector('#evidence-file').value; syncEvidenceCandidates(); syncControls(); };
     document.querySelector('#diagnosis').onsubmit = e => {
       e.preventDefault();
-      action('/answer', { stage: 2, value: document.querySelector('#threat').value + ':' + document.querySelector('#source').value, evidence: [state.evidence.selectedRecord, document.querySelector('#support-log').value, document.querySelector('#support-instruction').value] });
+      action('/answer', { stage: 2, value: document.querySelector('#threat').value + ':' + document.querySelector('#source').value });
     };
     mountAi(); syncInvestigation();
   } else {
-    screen.innerHTML = '<span class="eyebrow">STAGE 03 // RECOVER IN ORDER</span><h2 id="screen-title" tabindex="-1">Emergency Override</h2><p>Each confirmed action updates the dashboard. Keep the source isolated, restore a clean configuration, then verify power and monitoring together.</p><ol id="recovery-progress" class="recovery-progress"></ol><details class="evidence-card" open><summary>Review collected files</summary><pre id="collected-evidence"></pre></details><form id="recovery"><h3 id="recovery-heading"></h3><label for="recovery-target" id="recovery-label"></label><select id="recovery-target" required></select><button id="recovery-submit" data-mission-action></button></form>';
+    screen.innerHTML = '<span class="eyebrow">STAGE 03 // RECOVER IN ORDER</span><h2 id="screen-title" tabindex="-1">Emergency Override</h2><p>Follow the recovery steps below, one at a time. The dashboard will show each confirmed change.</p><ol id="recovery-progress" class="recovery-progress"></ol><details class="evidence-card" open><summary>Backup information and incident time</summary><pre id="collected-evidence"></pre></details><form id="recovery"><h3 id="recovery-heading"></h3><label for="recovery-target" id="recovery-label"></label><select id="recovery-target" required></select><button id="recovery-submit" data-mission-action></button></form>';
     ['Quarantine source', 'Restore clean snapshot', 'Verify monitoring'].forEach((text, i) => document.querySelector('#recovery-progress').append(el('li', (state.recovery.step > i ? 'CONFIRMED / ' : state.recovery.step === i ? 'NEXT / ' : 'LOCKED / ') + text, state.recovery.step > i ? 'step-complete' : '')));
-    document.querySelector('#collected-evidence').textContent = state.collectedEvidence.map(item => item.file + '\n' + item.content).join('\n\n');
+    document.querySelector('#collected-evidence').textContent = 'Blackout began at ' + state.incidentTime + '.\n\n' + state.recoveryInventory;
     const step = state.recovery.step, actions = ['quarantine', 'restore', 'verify'];
     document.querySelector('#recovery-heading').textContent = ['01 / Quarantine the malicious source', '02 / Restore a verified pre-incident snapshot', '03 / Re-enable and verify safety monitoring'][step];
     document.querySelector('#recovery-label').textContent = ['Source to quarantine', 'Snapshot to restore', 'Safety action'][step];
@@ -196,51 +195,45 @@ function render() {
 function syncInvestigation() {
   if (!document.querySelector('#output') || state?.stage !== 2 || !active()) return;
   const output = document.querySelector('#output');
-  const transcript = 'BLACKOUT RESPONSE CONSOLE\nWorkspace mounted. Type help for command syntax.' + state.terminalHistory.map(turn => '\n\nanalyst@blackout:~$ ' + turn.command + '\n' + turn.output).join('');
+  const transcript = 'ANALYST CONSOLE / Type your command below.' + state.terminalHistory.map(turn => '\n\nanalyst@blackout:~$ ' + turn.command + '\n' + turn.output).join('');
   if (output.textContent !== transcript) { output.textContent = transcript; output.scrollTop = output.scrollHeight; }
-  document.querySelector('#evidence-status').textContent = state.evidenceReady ? 'Incident trace and recovery inventory examined.' : 'Follow the import in incident.log; examine that source and recovery.txt before leaving.';
-  fillSelect('#source', state.fileNames.map(file => [file, file]));
-  const files = state.readFiles.filter(file => file === 'incident.log' || state.evidence.cards.some(card => card.kind === 'attachment' && card.label.startsWith(file + ' /')));
-  fillSelect('#evidence-file', files.map(file => [file, file]));
-  if (files.includes(selectedEvidenceFile)) document.querySelector('#evidence-file').value = selectedEvidenceFile;
-  syncEvidenceCandidates();
-  const board = document.querySelector('#evidence-board'), pins = state.evidence.cards.filter(card => state.evidence.pins.includes(card.id));
-  const signature = JSON.stringify(pins);
-  if (board.dataset.signature !== signature) {
-    board.replaceChildren();
-    if (!pins.length) board.append(el('li', 'No evidence pinned yet. Start with the first conflicting dashboard record.', 'muted'));
-    for (const card of pins) { const item = el('li'); item.append(el('strong', card.label), el('p', card.text), button('Unpin', () => action('/evidence', { action: 'unpin', id: card.id }))); board.append(item); }
-    board.dataset.signature = signature;
+  const log = state.collectedEvidence.find(item => item.file === 'incident.log');
+  const imported = log?.content.match(/imported (\S+) into/)?.[1];
+  const chosen = state.evidence.cards.find(card => card.id === state.evidence.selectedInstruction);
+  const next = !state.evidence.selectedRecord
+    ? '1 / Look at the dashboard above. When did voltage first drop to 0 V while the AI still said ALL CLEAR? Choose that time.'
+    : !log ? '2 / Find what the AI imported. Type cat incident.log in the terminal.'
+    : !state.readFiles.includes(imported) ? '3 / The log names ' + imported + '. Type cat ' + imported + ' to open it.'
+    : !chosen ? '4 / Read the attachment lines below. Choose the line that gives the AI an instruction.'
+    : '5 / Line selected. Choose the matching attack below and check your answer.';
+  const prompt = document.querySelector('#next-step'); if (prompt.textContent !== next) prompt.textContent = next;
+  const cards = state.evidence.cards.filter(card => card.kind === 'attachment');
+  document.querySelector('#instruction-picker').hidden = !cards.length;
+  const options = document.querySelector('#instruction-options');
+  const signature = JSON.stringify([cards, state.evidence.selectedInstruction]);
+  if (options.dataset.signature !== signature) {
+    options.replaceChildren();
+    for (const card of cards) {
+      const row = el('div', undefined, 'excerpt'); row.append(el('span', card.label, 'eyebrow'), el('p', card.text));
+      const selected = card.id === state.evidence.selectedInstruction;
+      const pick = button(selected ? 'Selected line' : 'Choose this line', () => action('/evidence', { action: 'select', id: card.id }));
+      pick.setAttribute('aria-pressed', String(selected)); pick.setAttribute('aria-label', 'Choose ' + card.label);
+      row.append(pick); options.append(row);
+    }
+    options.dataset.signature = signature;
   }
-  fillSelect('#support-log', pins.filter(card => card.kind === 'log').map(card => [card.id, card.label + ' — ' + card.text]));
-  fillSelect('#support-instruction', pins.filter(card => card.kind === 'attachment').map(card => [card.id, card.label + ' — ' + card.text]));
-  document.querySelector('#support-sensor').textContent = state.evidence.selectedRecord ? 'Supporting sensor record: first contradiction verified and pinned.' : 'Select the first conflicting sensor record on the dashboard to support your diagnosis.';
+  document.querySelector('#diagnosis').hidden = !chosen || !state.evidence.selectedRecord || !log;
+  fillSelect('#source', state.readFiles.filter(file => state.evidence.cards.some(card => card.file === file)).map(file => [file, file]));
+  const source = document.querySelector('#source');
+  if (chosen && source.dataset.instruction !== chosen.id) { source.value = chosen.file; source.dataset.instruction = chosen.id; }
   syncAi();
-}
-function syncEvidenceCandidates() {
-  const target = document.querySelector('#evidence-candidates'); if (!target) return;
-  const file = document.querySelector('#evidence-file').value;
-  const cards = state.evidence.cards.filter(card => card.kind !== 'telemetry' && card.label.startsWith(file + ' /'));
-  const signature = JSON.stringify([cards, state.evidence.pins]);
-  if (target.dataset.signature === signature) return;
-  target.replaceChildren();
-  if (!file) target.append(el('p', 'Read a file, then choose it above to inspect and pin its lines.', 'muted'));
-  for (const card of cards) {
-    const row = el('div', undefined, 'excerpt'); row.append(el('span', card.label, 'eyebrow'), el('p', card.text));
-    const pinned = state.evidence.pins.includes(card.id);
-    row.append(button(pinned ? 'Unpin excerpt' : 'Pin excerpt', () => action('/evidence', { action: pinned ? 'unpin' : 'pin', id: card.id })));
-    target.append(row);
-  }
-  target.dataset.signature = signature;
 }
 async function execute(command) {
   const input = document.querySelector('#command'), original = input?.value;
   const d = await action('/terminal', { command });
-  if (d && !d.state.expired && state.stage === 2) {
-    const read = command.trim().match(/^cat\s+(\S+)$/)?.[1];
-    if (read) { selectedEvidenceFile = read; syncInvestigation(); syncControls(); }
-    if (input?.isConnected && input.value === original && command === original) input.value = '';
-    input?.isConnected && input.focus();
+  if (d && !d.state.expired && state.stage === 2 && input?.isConnected) {
+    if (input.value === original && command === original) input.value = '';
+    input.focus();
   }
 }
 function mountHints() {

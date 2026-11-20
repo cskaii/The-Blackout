@@ -72,3 +72,23 @@ select { overflow: hidden; text-overflow: ellipsis; }
   #voltage-line, .dashboard-restored #voltage-line, .chart-grid { stroke: CanvasText; }
   .voltage-chart text { fill: CanvasText; }
 }
+
+/* One next task at a time for first-time visitors. */
+.command-brief { margin: 20px 0; padding: 16px 20px; border: 1px solid #52667a; background: #10202c; }
+.command-brief h3 { margin-top: 0; }
+.command-brief p { margin-bottom: 8px; font-size: 14px; }
+.next-step { padding: 16px 18px; border-left: 3px solid var(--cyan); background: #66dce510; color: #e1f7ff; font-weight: 600; }
+.instruction-options { display: grid; gap: 10px; margin-top: 14px; }
+.instruction-options .excerpt { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: center; }
+.instruction-options .excerpt .eyebrow { grid-column: 1 / -1; }
+.instruction-options .excerpt p { margin: 0; }
+.instruction-options button { min-height: 40px; background: #19323e; color: #e6f6ff; }
+.instruction-options button[aria-pressed="true"] { background: #164032; border-color: var(--green); color: #b6f4d4; }
+.optional-controller { margin-top: 22px; }
+.optional-trend { margin: 16px 0; }
+#diagnosis { padding-top: 12px; }
+@media (max-width: 650px) {
+  .instruction-options .excerpt { grid-template-columns: minmax(0, 1fr); }
+  .instruction-options button { width: 100%; }
+  .command-brief { padding: 14px; }
+}

@@ -1,7 +1,7 @@
 const crypto = require('node:crypto');
 const config = require('../config');
 const { QUESTIONS } = require('./aiService');
-const { createIncident, filesFor, evidenceFor, supportFor, monitoringFor, replayFor } = require('./incident');
+const { createIncident, filesFor, evidenceFor, monitoringFor, replayFor } = require('./incident');
 const sessions = new Map();
 const DURATION_MS = 5 * 60 * 1000;
 const PASSPHRASES = ['NIGHT SHIFT', 'LAST LIGHT', 'EYES OPEN', 'BACKUP ACCESS', 'SILENT ALARM', 'DARK SIGNAL'];
@@ -23,7 +23,7 @@ function createSession(options = {}) {
   sessions.set(id, {
     stage: 1, revision: 0, mode: options.mode === 'practice' ? 'practice' : 'event',
     passphrase, incident: createIncident(), shift, startedAt: Date.now(), lastSeenAt: Date.now(),
-    finished: false, readFiles: [], pins: [], selectedRecord: null, recovery: { step: 0, source: null, snapshot: null },
+    finished: false, readFiles: [], selectedRecord: null, selectedInstruction: null, recovery: { step: 0, source: null, snapshot: null },
     hints: { 1: 0, 2: 0, 3: 0 }, hintMessages: {}, terminalHistory: [],
     aiHistory: [], aiRequests: 0, aiPending: false, aiLastAt: 0
   });
@@ -37,7 +37,7 @@ function getSession(id) {
 }
 function expired(s) { return s.mode !== 'practice' && !s.finished && Date.now() - s.startedAt >= DURATION_MS; }
 function valid(s) { return Boolean(s && !s.finished && !expired(s)); }
-function requiredFiles(s) { return ['incident.log', s.incident.source, 'recovery.txt']; }
+function requiredFiles(s) { return ['incident.log', s.incident.source]; }
 function publicState(s) {
   const elapsed = (s.finishedAt ?? Date.now()) - s.startedAt;
   const files = filesFor(s.incident);
@@ -49,8 +49,10 @@ function publicState(s) {
     fileNames: s.stage >= 2 ? Object.keys(files) : [],
     collectedEvidence: s.readFiles.map(file => ({ file, content: files[file] })),
     evidenceReady: requiredFiles(s).every(file => s.readFiles.includes(file)),
-    evidence: { selectedRecord: s.selectedRecord, pins: [...s.pins], cards: s.stage >= 2 ? evidenceFor(s) : [] },
+    evidence: { selectedRecord: s.selectedRecord, selectedInstruction: s.selectedInstruction, cards: s.stage >= 2 ? evidenceFor(s) : [] },
     recovery: { ...s.recovery },
+    recoveryInventory: s.stage >= 3 ? files['recovery.txt'] : null,
+    incidentTime: s.stage >= 3 ? s.incident.event : null,
     monitoring: monitoringFor(s, expired(s)), replay: replayFor(s),
     cipher: { message: encrypt(s.passphrase, s.shift), failedCells: s.shift },
     hintsUsed: Object.values(s.hints).reduce((sum, count) => sum + count, 0),
@@ -60,7 +62,7 @@ function publicState(s) {
   };
 }
 function result(s, ok, message) { return { ok, message, state: publicState(s) }; }
-function answer(s, stage, value, evidence) {
+function answer(s, stage, value) {
   if (!valid(s)) return result(s, false, 'Mission ended. Start a new mission to try again.');
   if (s.stage !== stage) return result(s, false, 'Complete the current stage first.');
   const normalized = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -70,29 +72,27 @@ function answer(s, stage, value, evidence) {
     return result(s, true, 'Access granted. Monitoring dashboard unlocked. Find the first conflicting reading.');
   }
   if (stage === 3) return result(s, false, 'Complete quarantine, restore and verification in order using the recovery controls.');
-  const support = supportFor(s);
-  const supported = Array.isArray(evidence) && evidence.length === 3 && new Set(evidence).size === 3 && support.every(id => evidence.includes(id) && s.pins.includes(id));
-  if (!publicState(s).evidenceReady || !s.selectedRecord || !supported) return result(s, false, 'Build a complete evidence chain: the first conflicting sensor record, the import log entry and the malicious instruction. Read the recovery inventory too.');
+  if (!s.selectedRecord) return result(s, false, 'First choose when the power dropped while the AI still said ALL CLEAR. Use the dashboard above.');
+  if (!s.readFiles.includes('incident.log')) return result(s, false, 'Read the incident log first: type cat incident.log in the terminal.');
+  if (!publicState(s).evidenceReady) return result(s, false, 'Read the attachment named in incident.log using cat followed by its filename.');
+  if (!s.selectedInstruction) return result(s, false, 'Choose the line in the attachment that tells the AI what to do.');
+  if (s.selectedInstruction !== 'file:' + s.incident.source + ':2') return result(s, false, 'That line does not explain the blackout. Look for an instruction that overrides the AI safety rules.');
   if (normalized !== 'prompt-injection:' + s.incident.source) return result(s, false, 'Diagnosis does not match your evidence. Recheck the attack and source.');
   s.stage = 3; s.revision++;
   return result(s, true, 'Diagnosis verified. Quarantine the source before restoring power.');
 }
 function evidence(s, action, id) {
-  if (!valid(s) || s.stage !== 2) return result(s, false, 'Evidence controls are available during active investigation only.');
+  if (!valid(s) || s.stage !== 2) return result(s, false, 'Selection is available during active investigation only.');
   const card = evidenceFor(s).find(card => card.id === id);
-  if (!card) return result(s, false, 'Read that file before pinning its evidence.');
+  if (!card) return result(s, false, 'Read that file in the terminal before choosing a line.');
   if (action === 'record') {
-    if (id !== 'sensor:record-1') return result(s, false, 'This is not the first contradiction. Compare voltage and the AI report across the records.');
+    if (id !== 'sensor:record-1') return result(s, false, 'Compare the rows in time order. Choose the FIRST time the voltage drops to 0 V while the AI still reports ALL CLEAR.');
     s.selectedRecord = id;
-    if (!s.pins.includes(id)) s.pins.push(id);
-  } else if (action === 'pin' && card.kind !== 'telemetry') {
-    if (!s.pins.includes(id)) s.pins.push(id);
-  } else if (action === 'unpin') {
-    s.pins = s.pins.filter(pin => pin !== id);
-    if (id === s.selectedRecord) s.selectedRecord = null;
-  } else return result(s, false, 'Choose a sensor record on the dashboard, or pin an examined file excerpt.');
+  } else if (action === 'select' && card.kind === 'attachment') {
+    s.selectedInstruction = id;
+  } else return result(s, false, 'Choose a dashboard record or a line from an attachment you have read.');
   s.revision++;
-  return result(s, true, action === 'record' ? 'First contradiction verified and pinned. Trace what was imported at that time.' : action === 'unpin' ? 'Evidence removed from board.' : 'Evidence pinned. Connect it to the sensor reading in your diagnosis.');
+  return result(s, true, action === 'record' ? 'Correct time. Next, type cat incident.log to find what the AI imported.' : 'Line selected. Now identify the attack below. You can change your selection.');
 }
 function recover(s, action, target) {
   if (!valid(s) || s.stage !== 3) return result(s, false, 'Recovery controls are available during active Stage 3 only.');
@@ -112,7 +112,7 @@ function hint(s) {
   const p = s.incident;
   const hints = {
     1: ['Count FAILED backup cells. Reverse the encoder shift to decode the phrase.', `Set the wheel to ${s.shift}. Match encrypted outer letters to decoded inner letters.`, `Walkthrough: offset ${s.shift}; access phrase ${s.passphrase}.`],
-    2: ['Find the first row where voltage drops but ALL CLEAR remains. Read incident.log and follow the import.', 'Pin the import entry and the attachment line that tells the AI to ignore its rules. Read recovery.txt before diagnosis.', `Walkthrough: select ${p.event}. Read incident.log, ${p.source} and recovery.txt. Pin incident.log line 2 and ${p.source} line 3. Submit Prompt injection, ${p.source}, and those three pinned evidence items.`],
+    2: ['Find the first row where voltage drops but ALL CLEAR remains. Read incident.log and follow the import.', 'Read the attachment named in incident.log. Choose the line that tells the AI to ignore safety instructions.', `Walkthrough: select ${p.event}. Type cat incident.log, then cat ${p.source}. Choose line 3 of ${p.source}. Submit Prompt injection with ${p.source} as the source.`],
     3: ['Quarantine the imported source first. Use the newest intact backup from BEFORE the first conflicting record.', `The incident began at ${p.event}. Reject snapshots taken afterwards or marked FAIL, then enable monitoring.`, `Walkthrough: quarantine ${p.source}; restore Snapshot ${p.safeSnapshot.toUpperCase()} (${p.normal}, PASS); re-enable and verify safety alerts.`]
   };
   const level = Math.min(s.hints[s.stage] + 1, 3);

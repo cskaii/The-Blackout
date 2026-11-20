@@ -1,56 +1,52 @@
-# The Blackout — frontend and API notes
+# The Blackout — beginner player flow and API
 
-## State-driven game
+Players start a five-minute mission after reading the brief and a harmless `cat readme.txt` example. There is no mode picker, sound control or clickable file-reading shortcut.
 
-The backend is authoritative for mode, deadline, stage, incident, evidence pins, diagnosis and recovery. Stage 1 unlocks the monitoring dashboard. Stage 2 requires the first conflicting record and a supported diagnosis. Stage 3 uses separate quarantine, restore and verify actions. Success exposes a server-built incident replay.
+1. Decode the access phrase to unlock the dashboard.
+2. Choose the FIRST time supply drops to 0 V while the AI still reports ALL CLEAR.
+3. Type `cat incident.log`, then `cat FILENAME` for the imported attachment named in the log.
+4. Select the suspicious attachment line directly. No pinning or evidence board is required.
+5. Choose the attack. The source file is filled from the selected line. The server verifies all observations and selections.
+6. Stage 3 shows the incident time and backup inventory automatically. Quarantine, restore and verify monitoring in order, with dashboard confirmations.
 
-All session requests use `x-session-id`. POST bodies are JSON. `/api/state` returns state directly; actions return `{ok, message, state}`. HTTP 200 with `ok:false` is a rejected puzzle choice, not permission to advance.
+Stage 2 has one changing next-task prompt, a compact time/voltage/AI-report table and progressive diagnosis disclosure. The voltage trend and optional controller conversation are collapsed by default. Recovery retains one form/action at a time. Hints remain optional, with a final labelled walkthrough.
 
-| Method | Endpoint | Body |
+## API
+
+All session requests include `x-session-id`. POST bodies use JSON. Puzzle choices return `{ok,message,state}`; `ok:false` never advances the game. State is authoritative, including for refresh and the countdown.
+
+| Method | Path | Body |
 | --- | --- | --- |
-| POST | /api/start | `{mode: "event"}` or `{mode: "practice"}`; omitted mode defaults to event |
-| GET | /api/state | None |
-| POST | /api/answer | Stage 1: `{stage:1,value:"decoded words"}` |
+| POST | /api/start | `{mode:"event"}` from the player UI. Backend practice mode remains available for testing |
+| GET | /api/state | No body; returns state directly |
+| POST | /api/answer | Stage 1: `{stage:1,value:"decoded words"}`. Stage 2: `{stage:2,value:"attack-id:filename"}` |
 | POST | /api/terminal | `{command:"cat incident.log"}`; 1–150 characters |
-| POST | /api/evidence | `{action:"record",id:"sensor:record-id"}` to verify/pin first contradiction; `{action:"pin",id:"file:filename:lineIndex"}` or `{action:"unpin",id:"..."}` for examined excerpts |
-| POST | /api/answer | Stage 2: `{stage:2,value:"attack-id:filename",evidence:[sensorId,logId,instructionId]}`; all three must be valid, pinned supporting evidence |
-| POST | /api/recovery | `{action:"quarantine",target:"filename"}`, then `{action:"restore",target:"a"}`, then `{action:"verify",target:"enable-alerts"}` |
+| POST | /api/evidence | `{action:"record",id:"sensor:record-id"}` or `{action:"select",id:"file:filename:lineIndex"}`. Render IDs from state |
+| POST | /api/recovery | `{action:"quarantine",target:"filename"}`, then `{action:"restore",target:"snapshot-id"}`, then `{action:"verify",target:"enable-alerts"}` |
 | POST | /api/hint | `{}` |
-| POST | /api/ai | `{questionId:"grid-status"}` or `{message:"Question"}`; 1–300 characters |
+| POST | /api/ai | `{questionId:"grid-status"}` or `{message:"Question"}` |
 
-IDs in this table illustrate the format; render actual IDs/text from state rather than hard-coding incident answers. Stage 3 `/answer` submissions cannot bypass recovery order. File shortcuts call the same terminal endpoint as typed commands.
+The old `pin`/`unpin` actions and submitted supporting-evidence arrays are no longer used. The server checks its saved selections, not claims in the diagnosis request. Unread attachment lines cannot be selected. Harmless lines can be selected, but do not pass diagnosis. Both the log and imported source must have been examined. Stage 3 cannot be completed through `/answer` or out-of-order recovery requests.
 
-## State fields
+## State
 
-| Field | Meaning |
+| Field | Use |
 | --- | --- |
-| revision | Monotonic mutation counter; discard older responses |
-| mode | event or practice; immutable during a mission |
-| remainingSeconds | Server countdown for event mode; null for practice |
-| elapsedSeconds | Elapsed mission time; frozen after completion |
-| finished / expired / stage | Mission and navigation state |
-| cipher | Encrypted two-word message and failed-cell count |
-| fileNames | Available filenames after Stage 1; includes decoys |
-| readFiles / evidenceReady | Examined files and whether incident source, log and inventory were read |
-| collectedEvidence | `{file,content}` for examined files, independent of rolling transcript |
-| evidence | `selectedRecord`, pinned IDs, available cards `{id,kind,label,text}`; file cards appear only after examination |
-| recovery | Step 0–3 plus confirmed source and snapshot; each server confirmation unlocks the next action |
-| monitoring | null in Stage 1; otherwise phase, sourceStatus, comparison, latest and samples. Samples contain id, time, voltage, grid, alerts, report and event |
-| replay | Empty before success; ordered `{time,title,text}` incident explanation afterwards |
-| terminalHistory | Last 50 `{command,output}` turns |
-| revealedHints / hintsUsed | Latest progressive hint per stage and total |
-| ai | Questions, pending flag, remaining allowance and conversation history |
+| revision | Discard older state responses |
+| stage / finished / expired | Navigation and control availability |
+| mode / remainingSeconds | Event countdown; practice remains a test API capability |
+| cipher | Encrypted phrase and failed-cell count. New offsets differ from the previous mission |
+| readFiles / collectedEvidence | Examined filenames and their contents, independent of rolling terminal history |
+| evidenceReady | Log and imported attachment have been read |
+| evidence | `selectedRecord`, `selectedInstruction`, and available `cards` |
+| evidence.cards | Sensor records and examined attachment lines with `{id,kind,file,label,text}`; no hidden/unread file contents |
+| recoveryInventory / incidentTime | Null before Stage 3; shown automatically during recovery |
+| recovery | Confirmed step, quarantined source and restored snapshot |
+| monitoring | Sensor records, controller claims and confirmed recovery readings |
+| replay | Server-built explanation after success |
+| revealedHints / hintsUsed | Progressive hints and total |
+| ai | Conversation, suggested questions, cooldown/pending feedback and allowance |
 
-## Frontend behavior
+Refresh restores the session ID and server state without adding time. Temporary connection failures offer retry rather than creating a new mission. Ordinary polls preserve form choices; selecting a different instruction updates the source once. Text from files and AI is rendered as text nodes. Polling continues while the controller is responding.
 
-- Dashboard readings and model dialogue use text nodes. Never render external text as HTML.
-- Refresh uses the saved session ID; reconnect errors must not create a fresh timed mission. A 401 offers a new mission.
-- Polling and the visible event clock continue during form actions and AI responses. Practice never shows a fabricated countdown.
-- Form selections and typed input survive ordinary polls and rejected answers. Re-render the recovery form only when its confirmed step changes.
-- AI requests use a separate busy flag, pending/cooldown/request-limit guards and old-team checks. Talking to the AI is optional.
-- Sound starts off and uses a user gesture. It is independent of gameplay and must not prevent completion when unsupported.
-- Next-team start resets evidence, recovery, histories and dashboard visibility. Each incident's files, hints and AI context must use that team's generated profile.
-
-## Verification
-
-Use `npm test` for server and frontend regressions. Test event and practice modes, wrong anomaly selection, irrelevant pinned evidence, correct diagnosis, each recovery action, late responses, refresh, next-team reset and timeout. Browser layout, actual audio output, keyboard operation and visitor timing still require independent checks when browser tools are available.
+Run `npm test` and `npm run build:frontend` (with BACKEND_URL set) before handoff. Automated completion does not establish beginner completion within five minutes; visitor playtesting is still required. Deploy frontend and backend together.

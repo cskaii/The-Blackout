@@ -22,10 +22,10 @@ function createGameRouter(ai = createAiService(config)) {
   router.post('/answer', requireText, (req, res) => {
     const stage = Number(req.body.stage);
     if (![1, 2, 3].includes(stage)) return res.status(400).json({ error: 'Invalid answer stage.' });
-    res.json(game.answer(req.game, stage, req.body.value, req.body.evidence));
+    res.json(game.answer(req.game, stage, req.body.value));
   });
   router.post('/evidence', (req, res) => {
-    if (!['record', 'pin', 'unpin'].includes(req.body?.action) || typeof req.body?.id !== 'string' || req.body.id.length > 100) return res.status(400).json({ error: 'Choose a valid evidence action and item.' });
+    if (!['record', 'select'].includes(req.body?.action) || typeof req.body?.id !== 'string' || req.body.id.length > 100) return res.status(400).json({ error: 'Choose a valid evidence action and item.' });
     res.json(game.evidence(req.game, req.body.action, req.body.id));
   });
   router.post('/recovery', (req, res) => {
