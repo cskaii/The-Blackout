@@ -12,14 +12,14 @@ async function unlock(f){
 }
 async function investigate(f){
   const row=f.document.querySelector('#sensor-records').children[1];await row.querySelector('button').onclick();await f.settle();
+  assert.match(f.document.querySelector('#next-step').textContent,/cat incident.log/);
   await f.command('cat incident.log');
   const source=f.state().collectedEvidence.find(item=>item.file==='incident.log').content.match(/imported (\S+) into/)[1];
-  let card=f.document.querySelector('#evidence-candidates').children[1];await card.querySelector('button').onclick();await f.settle();
+  assert.ok(f.document.querySelector('#next-step').textContent.includes('cat '+source));
   await f.command('cat '+source);
-  card=f.document.querySelector('#evidence-candidates').children[2];await card.querySelector('button').onclick();await f.settle();
-  await f.command('cat recovery.txt');
-  f.document.querySelector('#threat').value='prompt-injection';f.document.querySelector('#source').value=source;
-  f.document.querySelector('#support-log').value='file:incident.log:1';f.document.querySelector('#support-instruction').value='file:'+source+':2';
+  const line=f.document.querySelector('#instruction-options').children[2];await line.querySelector('button').onclick();await f.settle();
+  assert.equal(f.document.querySelector('#source').value,source);
+  f.document.querySelector('#threat').value='prompt-injection';
   await f.fire('#diagnosis','onsubmit');assert.equal(f.state().stage,3);return source;
 }
 
@@ -33,23 +33,23 @@ test('frontend completes evidence-led mission and shows each recovery confirmati
   assert.equal(f.state().recovery.step,2);assert.equal(f.document.querySelector('#monitoring-voltage').textContent,'230 V');assert.equal(f.document.querySelector('#monitoring-alerts').textContent,'MUTED');
   f.document.querySelector('#recovery-target').value='enable-alerts';await f.fire('#recovery','onsubmit');
   assert.equal(f.state().finished,true);assert.equal(f.document.querySelector('#monitoring-alerts').textContent,'ENABLED');assert.equal(f.document.querySelector('#incident-replay').children.length,7);
-  assert.equal(f.document.querySelector('#mission-mode'),null);await f.fire('#again');assert.equal(f.state().mode,'event');assert.equal(f.state().stage,1);assert.equal(f.document.querySelector('#monitoring-dashboard').hidden,true);assert.deepEqual(f.state().evidence.pins,[]);
+  assert.equal(f.document.querySelector('#mission-mode'),null);await f.fire('#again');assert.equal(f.state().mode,'event');assert.equal(f.state().stage,1);assert.equal(f.document.querySelector('#monitoring-dashboard').hidden,true);assert.equal(f.state().evidence.selectedInstruction,null);
 });
 
-test('refresh restores event countdown, pins and partial recovery without resetting the mission',async()=>{
+test('refresh restores event countdown, selected instruction and partial recovery without resetting the mission',async()=>{
   const f=frontend();await unlock(f);const source=await investigate(f);
   f.document.querySelector('#recovery-target').value=source;await f.fire('#recovery','onsubmit');
   const refreshed=frontend({app:f.app,storage:f.storage});await refreshed.settle();
   assert.equal(refreshed.state().stage,3);assert.equal(refreshed.state().recovery.step,1);
-  assert.equal(refreshed.state().mode,'event');assert.match(refreshed.document.querySelector('#timer').textContent,/^\d{2}:\d{2}$/);assert.equal(refreshed.state().evidence.pins.length,3);assert.equal(refreshed.document.querySelector('#monitoring-source').textContent,'Maintenance import: QUARANTINED');
+  assert.equal(refreshed.state().mode,'event');assert.match(refreshed.document.querySelector('#timer').textContent,/^\d{2}:\d{2}$/);assert.equal(refreshed.state().evidence.selectedInstruction,'file:'+source+':2');assert.equal(refreshed.document.querySelector('#monitoring-source').textContent,'Maintenance import: QUARANTINED');
 });
 
 test('wrong choices preserve input and cannot advance the screen',async()=>{
   const f=frontend();await unlock(f);
   f.document.querySelector('#command').value='ls';await f.fire('#terminal','onsubmit');assert.match(f.document.querySelector('#output').textContent,/incident.log/);
   f.document.querySelector('#threat').value='prompt-injection';f.document.querySelector('#source').value='status.txt';
-  await f.fire('#diagnosis','onsubmit');assert.equal(f.state().stage,2);assert.equal(f.document.querySelector('#source').value,'status.txt');assert.match(f.document.querySelector('#notice').textContent,/evidence chain/);
-  const row=f.document.querySelector('#sensor-records').children[2];await row.querySelector('button').onclick();await f.settle();assert.equal(f.state().evidence.selectedRecord,null);assert.match(f.document.querySelector('#notice').textContent,/not the first/);
+  await f.fire('#diagnosis','onsubmit');assert.equal(f.state().stage,2);assert.equal(f.document.querySelector('#threat').value,'prompt-injection');assert.match(f.document.querySelector('#notice').textContent,/First choose/);
+  const row=f.document.querySelector('#sensor-records').children[2];await row.querySelector('button').onclick();await f.settle();assert.equal(f.state().evidence.selectedRecord,null);assert.match(f.document.querySelector('#notice').textContent,/FIRST time/);
 });
 
 test('AI fallback is playable, plain text and does not interrupt investigation',async()=>{
@@ -92,4 +92,21 @@ test('temporary refresh failure preserves the mission and offers reconnect witho
   assert.match(recovered.document.querySelector('#notice').textContent,/Retry to resume/);
   assert.equal(recovered.document.querySelector('#start').textContent,'Retry connection');
   assert.equal(recovered.document.querySelector('#start').disabled,false);
+});
+
+
+test('beginners see instructions before the timer and no pinning or supporting dropdowns',async()=>{
+  const f=frontend();
+  assert.equal(f.state(),null);
+  assert.match(f.document.querySelector('.command-brief').textContent,/cat readme.txt/);
+  await unlock(f);
+  for(const selector of ['#support-log','#support-instruction','#evidence-board','#evidence-file']) assert.equal(f.document.querySelector(selector),null);
+  assert.equal(f.document.querySelector('#diagnosis').hidden,true);
+  assert.equal(f.document.querySelector('#instruction-picker').hidden,true);
+  assert.equal(f.document.querySelector('.optional-controller').getAttribute('open'),null);
+  assert.equal(f.document.querySelector('.optional-trend').getAttribute('open'),null);
+  await investigate(f);
+  assert.match(f.document.querySelector('#collected-evidence').textContent,/Blackout began at/);
+  assert.match(f.document.querySelector('#collected-evidence').textContent,/Snapshot/);
+  assert.equal(f.state().readFiles.includes('recovery.txt'),false);
 });

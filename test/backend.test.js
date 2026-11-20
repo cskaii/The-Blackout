@@ -34,10 +34,9 @@ async function session(app, stage = 1) {
   return { id: data.sessionId, s };
 }
 async function investigate(app, id, s) {
-  for (const file of ['incident.log', s.incident.source, 'recovery.txt']) await request(app, '/terminal', { command: 'cat ' + file }, id);
+  for (const file of ['incident.log', s.incident.source]) await request(app, '/terminal', { command: 'cat ' + file }, id);
   await request(app, '/evidence', { action: 'record', id: 'sensor:record-1' }, id);
-  for (const card of ['file:incident.log:1', 'file:' + s.incident.source + ':2']) await request(app, '/evidence', { action: 'pin', id: card }, id);
-  return ['sensor:record-1', 'file:incident.log:1', 'file:' + s.incident.source + ':2'];
+  await request(app, '/evidence', { action: 'select', id: 'file:' + s.incident.source + ':2' }, id);
 }
 
 test('full mission requires supported diagnosis and recovery in sequence', async () => {
@@ -207,33 +206,36 @@ test('cipher roundtrips, sessions expire from storage and shell is simulated', (
   assert.match(run('ls; whoami'), /not recognised/);
 });
 
-test('pins must reference examined evidence and the first anomaly must be the earliest conflict', async () => {
-  const app = createApp();
-  const { id, s } = await session(app, 2);
-  assert.equal((await request(app, '/evidence', {action:'pin', id:'file:' + s.incident.source + ':2'}, id)).data.ok, false);
+test('players can select only examined attachment lines and must find the first anomaly', async () => {
+  const app = createApp(); const { id, s } = await session(app, 2);
+  assert.equal((await request(app, '/evidence', {action:'select', id:'file:' + s.incident.source + ':2'}, id)).data.ok, false);
   for (const record of ['sensor:record-0', 'sensor:record-2']) assert.equal((await request(app, '/evidence', {action:'record', id:record}, id)).data.ok, false);
-  const pinned = await request(app, '/evidence', {action:'record', id:'sensor:record-1'}, id);
-  assert.equal(pinned.data.state.evidence.pins.length, 1);
   await request(app, '/evidence', {action:'record', id:'sensor:record-1'}, id);
-  assert.equal(s.pins.length, 1);
-  await request(app, '/evidence', {action:'unpin', id:'sensor:record-1'}, id);
-  assert.equal(s.selectedRecord, null);
-  assert.equal(s.pins.length, 0);
-  assert.equal((await request(app, '/evidence', {action:'bogus', id:'x'}, id)).status, 400);
+  await request(app, '/evidence', {action:'record', id:'sensor:record-1'}, id);
+  assert.equal(s.selectedRecord, 'sensor:record-1');
+  assert.equal((await request(app, '/evidence', {action:'pin', id:'sensor:record-1'}, id)).status, 400);
   assert.equal((await request(app, '/recovery', {action:'verify', target:{}}, id)).status, 400);
 });
 
-test('diagnosis rejects forged, unpinned, repeated or irrelevant supporting evidence', async () => {
-  const app = createApp(); const { id, s } = await session(app, 2);
-  const correct = await investigate(app, id, s);
+test('diagnosis checks server selections and rejects harmless lines and forged payloads', async () => {
+  const app = createApp(); const {id,s} = await session(app,2);
   const value = 'prompt-injection:' + s.incident.source;
-  for (const evidence of [undefined, [], {}, [correct[0], correct[0], correct[0]], [correct[0], correct[1], 'file:status.txt:1']]) {
-    assert.equal((await request(app, '/answer', {stage:2, value, evidence}, id)).data.ok, false);
-  }
-  await request(app, '/evidence', {action:'unpin', id:correct[2]}, id);
-  assert.equal((await request(app, '/answer', {stage:2, value, evidence:correct}, id)).data.ok, false);
-  await request(app, '/evidence', {action:'pin', id:correct[2]}, id);
-  assert.equal((await request(app, '/answer', {stage:2, value, evidence:correct}, id)).data.ok, true);
+  await request(app, '/terminal', {command:'cat incident.log'}, id);
+  await request(app, '/terminal', {command:'cat ' + s.incident.source}, id);
+  const forged = {stage:2, value, selectedInstruction:'file:' + s.incident.source + ':2', evidence:['sensor:record-1','file:incident.log:1','file:' + s.incident.source + ':2']};
+  assert.equal((await request(app, '/answer', forged, id)).data.ok,false);
+  await request(app, '/evidence', {action:'record',id:'sensor:record-1'}, id);
+  assert.equal((await request(app, '/answer', forged, id)).data.ok,false);
+  await request(app, '/evidence', {action:'select',id:'file:' + s.incident.source + ':1'}, id);
+  assert.equal((await request(app, '/answer', {stage:2,value}, id)).data.ok,false);
+  assert.equal((await request(app, '/evidence', {action:'select',id:'file:incident.log:1'}, id)).data.ok,false);
+  await request(app, '/evidence', {action:'select',id:'file:' + s.incident.source + ':2'}, id);
+  assert.equal((await request(app, '/answer', {stage:2,value:'denial-of-service:' + s.incident.source}, id)).data.ok,false);
+  const result=(await request(app, '/answer', {stage:2,value}, id)).data;
+  assert.equal(result.ok,true); assert.equal(result.state.stage,3);
+  assert.ok(result.state.recoveryInventory.includes('Snapshot'));
+  assert.equal(result.state.incidentTime,s.incident.event);
+  assert.equal(s.readFiles.includes('recovery.txt'),false);
 });
 
 test('practice is untimed, remains active beyond event deadline and survives polling and cleanup', async () => {
@@ -251,7 +253,7 @@ test('practice is untimed, remains active beyond event deadline and survives pol
   await request(app, '/answer', {stage:2, value:'prompt-injection:' + s.incident.source, evidence}, d.sessionId);
   await request(app, '/recovery', {action:'quarantine', target:s.incident.source}, d.sessionId);
   restored = (await request(app, '/state', undefined, d.sessionId)).data;
-  assert.equal(restored.recovery.step, 1); assert.equal(restored.evidence.pins.length, 3);
+  assert.equal(restored.recovery.step, 1); assert.equal(restored.evidence.selectedInstruction,'file:' + s.incident.source + ':2');
   assert.equal(restored.monitoring.latest.voltage, 0);
 });
 
@@ -274,7 +276,7 @@ test('wrong choices, duplicates and timeout cannot skip recovery or claim victor
 });
 
 test('incident variations keep telemetry, file evidence, hints, AI and valid backups consistent', async () => {
-  const {filesFor, supportFor} = require('../backend/services/incident');
+  const {filesFor} = require('../backend/services/incident');
   const sources = new Set(), times = new Set(), backups = new Set();
   for (let i = 0; i < 24; i++) {
     const s = game.getSession(game.createSession({mode:'practice'})), p = s.incident, files = filesFor(p);
@@ -283,9 +285,9 @@ test('incident variations keep telemetry, file evidence, hints, AI and valid bac
     const eligible = p.snapshots.filter(item => item.time < p.event && item.integrity === 'PASS');
     assert.equal(eligible.length, 1); assert.equal(eligible[0].id, p.safeSnapshot);
     assert.equal(game.answer(s, 1, s.passphrase).ok, true);
-    s.readFiles = ['incident.log', p.source, 'recovery.txt'];
-    s.pins = supportFor(s); s.selectedRecord = s.pins[0];
-    assert.equal(game.answer(s,2,'prompt-injection:' + p.source, s.pins).ok, true);
+    s.readFiles = ['incident.log', p.source];
+    s.selectedRecord = 'sensor:record-1'; s.selectedInstruction = 'file:' + p.source + ':2';
+    assert.equal(game.answer(s,2,'prompt-injection:' + p.source).ok, true);
     game.hint(s); game.hint(s);
     assert.match(game.hint(s).message, new RegExp('Snapshot ' + p.safeSnapshot.toUpperCase()));
     const ai = await createAiService({apiKey:''}).respond('What changed?', [], 'last-change', p);
@@ -321,9 +323,9 @@ test('session restore retains evidence after transcript rollover and next team s
   for (let i=0;i<55;i++) await request(app, '/terminal', {command:'pwd'}, id);
   const restored = (await request(app, '/state', undefined, id)).data;
   assert.equal(restored.terminalHistory.length,50);
-  assert.equal(restored.collectedEvidence.length,3);
-  assert.equal(restored.evidence.pins.length,3);
+  assert.equal(restored.collectedEvidence.length,2);
+  assert.equal(restored.evidence.selectedInstruction,'file:' + s.incident.source + ':2');
   const next = (await request(app, '/start', {})).data;
-  assert.equal(next.state.monitoring,null); assert.deepEqual(next.state.evidence.pins,[]);
+  assert.equal(next.state.monitoring,null); assert.equal(next.state.evidence.selectedInstruction,null);
   assert.equal(next.state.recovery.step,0); assert.notEqual(next.state.cipher.message, restored.cipher.message);
 });
