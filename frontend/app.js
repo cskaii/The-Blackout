@@ -180,8 +180,9 @@ function render() {
     for (let i = 0; i < 8; i++) document.querySelector('#backup-cells').append(el('span', 'Cell ' + (i + 1) + ': ' + (i < state.cipher.failedCells ? 'FAILED' : 'Working'), i < state.cipher.failedCells ? 'cell failed' : 'cell online'));
     const select = document.querySelector('#wheel-shift');
     for (let i = 0; i < 26; i++) { const option = el('option', String(i)); option.value = i; select.append(option); }
-    select.value = wheelShift; select.onchange = () => { wheelShift = Number(select.value); buildWheel(); };
+    select.value = wheelShift; select.onchange = () => setWheelShift(Number(select.value));
     buildWheel();
+    bindWheelInteraction();
     document.querySelector('#decode').onsubmit = e => { e.preventDefault(); action('/answer', { stage: 1, value: document.querySelector('#answer').value }); };
   } else if (state.stage === 2) {
     screen.innerHTML = '<span class="eyebrow">STAGE 02 // FIND WHAT WENT WRONG</span><h2 id="screen-title" tabindex="-1">Investigate the blackout</h2><p id="next-step" class="next-step" role="status"></p><h3>Read the files</h3><div class="terminal-bar"><span>analyst@blackout</span><span>INVESTIGATION CONSOLE</span></div><pre id="output" role="log" aria-label="Terminal output"></pre><form id="terminal"><label for="command">Type a command</label><div class="input-row"><input id="command" maxlength="150" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="cat incident.log" required><button data-mission-action>Run command</button></div></form><div id="instruction-picker"><h3>Which line tells the AI what to do?</h3><p class="muted">Choose the suspicious line from a file you have read. You can change your choice.</p><div id="instruction-options" class="instruction-options"></div></div><form id="diagnosis"><h3>What caused the blackout?</h3><p>Choose the attack that matches your selected line.</p><div class="plan-grid"><div><label for="threat">Attack type</label><select id="threat" required><option value="">Choose attack</option><option value="credential-theft">Credential theft (stolen passwords)</option><option value="data-poisoning">Training data poisoning (altered training data)</option><option value="prompt-injection">Prompt injection (hidden instructions)</option><option value="denial-of-service">Denial of service (overloaded service)</option></select></div><div><label for="source">Source file</label><select id="source" required></select><p class="muted">Filled from the line you selected.</p></div></div><button data-mission-action>Check my answer →</button></form><details class="optional-controller"><summary>Optional: question the AI controller</summary><div id="controller-panel"></div></details>';
@@ -312,6 +313,69 @@ async function restoreMission() {
 }
 bindBrief();
 restoreMission();
+function setWheelShift(value) {
+  wheelShift = ((value % 26) + 26) % 26;
+  document.querySelector('#wheel-shift').value = wheelShift;
+  buildWheel();
+}
+function bindWheelInteraction() {
+  const svg = document.querySelector('#wheel');
+  let scrollDelta = 0, drag = null;
+  const enabled = () => active() && state.stage === 1;
+  const angleAt = event => {
+    const rect = svg.getBoundingClientRect();
+    const x = event.clientX - rect.left - rect.width / 2;
+    const y = event.clientY - rect.top - rect.height / 2;
+    // Ignore the hub, where tiny movements would cause large angle jumps.
+    return Math.hypot(x, y) < Math.min(rect.width, rect.height) * 0.1 ? null : Math.atan2(y, x);
+  };
+  svg.setAttribute('tabindex', '0');
+  svg.setAttribute('role', 'slider');
+  svg.setAttribute('aria-valuemin', '0'); svg.setAttribute('aria-valuemax', '25');
+  svg.setAttribute('aria-describedby', 'wheel-instructions');
+  const instructions = el('p', 'Scroll over the wheel or drag it to turn. Arrow keys or the offset menu also work.', 'muted');
+  instructions.id = 'wheel-instructions';
+  document.querySelector('.wheel-controls').append(instructions);
+  svg.addEventListener('wheel', event => {
+    if (!enabled() || event.ctrlKey || event.metaKey || !event.deltaY || drag) return;
+    event.preventDefault();
+    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? svg.getBoundingClientRect().height : 1);
+    if (Math.sign(delta) !== Math.sign(scrollDelta)) scrollDelta = 0;
+    scrollDelta += delta;
+    const steps = Math.trunc(scrollDelta / 100);
+    if (steps) { scrollDelta -= steps * 100; setWheelShift(wheelShift + steps); }
+  }, { passive: false });
+  svg.onkeydown = event => {
+    if (!enabled() || event.ctrlKey || event.altKey || event.metaKey) return;
+    const direction = {ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1}[event.key];
+    if (!direction) return;
+    event.preventDefault(); setWheelShift(wheelShift + direction);
+  };
+  svg.onpointerdown = event => {
+    if (!enabled() || drag || event.button !== 0) return;
+    const angle = angleAt(event); if (angle === null) return;
+    event.preventDefault(); svg.focus(); svg.setPointerCapture(event.pointerId);
+    scrollDelta = 0;
+    drag = { id: event.pointerId, angle, radians: 0, start: wheelShift };
+    svg.classList.toggle('dragging', true);
+  };
+  svg.onpointermove = event => {
+    if (!drag || event.pointerId !== drag.id || !enabled()) return;
+    const angle = angleAt(event);
+    if (angle === null) { drag.angle = null; return; }
+    if (drag.angle !== null) drag.radians += Math.atan2(Math.sin(angle - drag.angle), Math.cos(angle - drag.angle));
+    drag.angle = angle;
+    const next = ((drag.start + Math.round(drag.radians * 26 / (2 * Math.PI))) % 26 + 26) % 26;
+    if (next !== wheelShift) setWheelShift(next);
+  };
+  const stop = event => {
+    if (!drag || drag.id !== event.pointerId) return;
+    drag = null; svg.classList.remove('dragging');
+    if (svg.hasPointerCapture(event.pointerId)) svg.releasePointerCapture(event.pointerId);
+  };
+  svg.onpointerup = stop; svg.onpointercancel = stop; svg.onlostpointercapture = stop;
+  updateWheel(svg);
+}
 function buildWheel() {
   const svg = document.querySelector('#wheel');
   if (svg.querySelector('.inner-ring')) {
@@ -384,6 +448,8 @@ function buildWheel() {
   updateWheel(svg);
 }
 function updateWheel(svg) {
+  svg.setAttribute('aria-valuenow', wheelShift);
+  svg.setAttribute('aria-valuetext', 'Offset ' + wheelShift);
   const previous = Number(svg.dataset.offset);
   // Take the short route, including the wrap between offsets 25 and 0.
   const delta = ((wheelShift - previous + 39) % 26) - 13;

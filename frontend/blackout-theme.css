@@ -19,6 +19,10 @@
 
 /* Rotate only the inner alphabet; counter-rotate letters to keep them upright. */
 #wheel .inner-ring { transform-origin: 150px 150px; }
+#wheel { cursor: grab; touch-action: none; user-select: none; }
+#wheel.dragging { cursor: grabbing; }
+#wheel:focus-visible { outline: 2px solid var(--cyan); outline-offset: 5px; border-radius: 50%; }
+#wheel.dragging .inner-ring, #wheel.dragging .inner-ring text { transition: none; }
 #wheel .inner-ring, #wheel .inner-ring text { transition: transform 450ms ease-in-out; transform-box: view-box; }
 .wheel-turns { display: flex; gap: 8px; margin-top: 10px; }
 .wheel-turns button { min-width: 60px; font-size: 20px; padding: 6px 18px; }

@@ -10,6 +10,51 @@ async function unlock(f){
   f.document.querySelector('#answer').value=phrase;await f.fire('#decode','onsubmit');
   assert.equal(f.state().stage,2);assert.equal(f.document.querySelector('#monitoring-dashboard').hidden,false);
 }
+
+test('wheel scrolling wraps offsets, accumulates trackpad movement and synchronizes controls',async()=>{
+  const f=frontend();await f.fire('#start');
+  const wheel=f.document.querySelector('#wheel'),select=f.document.querySelector('#wheel-shift');
+  let prevented=0;
+  const scroll=(deltaY,extra={})=>wheel.events.wheel({deltaY,deltaMode:0,preventDefault(){prevented++;},...extra});
+  scroll(40);assert.equal(Number(select.value),0);
+  scroll(60);assert.equal(Number(select.value),1);
+  assert.match(f.document.querySelector('#wheel-pairs').textContent,/A = Z/);
+  assert.equal(wheel.getAttribute('aria-valuenow'),'1');
+  scroll(-100);assert.equal(Number(select.value),0);
+  scroll(-100);assert.equal(Number(select.value),25);
+  assert.equal(Number(wheel.dataset.rotation),-360/26);
+  scroll(100);assert.equal(Number(select.value),0);
+  const before=prevented;scroll(100,{ctrlKey:true});assert.equal(prevented,before);assert.equal(Number(select.value),0);
+  scroll(100,{deltaMode:1});assert.equal(Number(select.value),16);
+  select.value='4';select.onchange();assert.equal(Number(wheel.dataset.offset),4);
+  wheel.onkeydown({key:'ArrowLeft',preventDefault(){}});assert.equal(Number(select.value),3);
+  wheel.onkeydown({key:'ArrowRight',preventDefault(){}});assert.equal(Number(select.value),4);
+  assert.equal(f.state().stage,1);
+});
+
+test('wheel dragging follows angles across the seam, captures pointers and stops on release or cancel',async()=>{
+  const f=frontend();await f.fire('#start');
+  const wheel=f.document.querySelector('#wheel'),select=f.document.querySelector('#wheel-shift');
+  wheel.getBoundingClientRect=()=>({left:20,top:30,width:300,height:300});
+  let captured=null;
+  wheel.setPointerCapture=id=>{captured=id;};wheel.hasPointerCapture=id=>captured===id;
+  wheel.releasePointerCapture=()=>{captured=null;};
+  const point=(degrees,extra={})=>({pointerId:1,button:0,clientX:170+110*Math.cos(degrees*Math.PI/180),clientY:180+110*Math.sin(degrees*Math.PI/180),preventDefault(){},...extra});
+  wheel.onpointerdown(point(0,{button:2}));assert.equal(captured,null);
+  wheel.onpointerdown(point(0,{clientX:170,clientY:180}));assert.equal(captured,null);
+  wheel.onpointerdown(point(170));assert.equal(captured,1);
+  wheel.onpointermove(point(-170,{pointerId:2}));assert.equal(Number(select.value),0);
+  wheel.onpointermove(point(-170));assert.equal(Number(select.value),1);
+  wheel.onpointermove(point(170));assert.equal(Number(select.value),0);
+  wheel.onpointermove(point(170-360/26));assert.equal(Number(select.value),25);
+  wheel.onpointerup(point(150));assert.equal(captured,null);assert.ok(!wheel.className.includes('dragging'));
+  wheel.onpointermove(point(0));assert.equal(Number(select.value),25);
+  wheel.onpointerdown(point(0));wheel.onpointercancel(point(0));assert.equal(captured,null);
+  wheel.onpointermove(point(90));assert.equal(Number(select.value),25);
+  wheel.onpointerdown(point(0));captured=null;wheel.onlostpointercapture(point(0));
+  assert.ok(!wheel.className.includes('dragging'));
+  wheel.onpointermove(point(90));assert.equal(Number(select.value),25);
+});
 async function investigate(f){
   const row=f.document.querySelector('#sensor-records').children[1];await row.querySelector('button').onclick();await f.settle();
   assert.match(f.document.querySelector('#next-step').textContent,/cat incident.log/);
