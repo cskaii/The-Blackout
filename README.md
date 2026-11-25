@@ -15,17 +15,17 @@ Open http://localhost:3000. Use `npm run dev` for watch mode and `npm test` for 
 
 ## Player flow
 
-Before the clock starts, the brief explains `cat FILENAME` with a harmless example. Stage 2 shows one next task at a time and reveals the diagnosis only after a sensor record and attachment line have been selected. The five-minute timing still needs beginner visitor playtesting.
+Before the clock starts, the brief explains `cat FILENAME` with a harmless example. Stage 2 shows one next task at a time and reveals the diagnosis only after a sensor record and attachment line have been selected. The seven-minute timing still needs beginner visitor playtesting.
 
-1. **Begin the mission.** Read the short command example, then press Begin mission to start the shared five-minute countdown. There is no mode picker or sound control.
+1. **Begin the mission.** Read the short command example, then press Begin mission to start the shared seven-minute countdown. There is no mode picker or sound control.
 2. **Crack the Code.** Count FAILED backup cells, set the Caesar wheel offset and decode the team's two-word phrase. Correct entry unlocks the control room and monitoring dashboard.
 3. **Investigate.** Compare the sensor records with the AI's ALL CLEAR claim. Mark the first record where voltage drops to 0 V and alarms become muted. The later observation also conflicts, but is not the first anomaly.
 4. **Follow the files.** Type `cat incident.log`, then `cat` followed by the imported filename shown in the log. Choose the attachment line that tells the AI to ignore its safety instructions. There is no evidence board or pinning step.
 5. **Diagnose.** Choose the attack type; the source file is filled from your selected line. The server checks the first conflicting record, examined log and attachment, selected instruction, attack and source together. No supporting-evidence dropdowns are needed.
 6. **Recover in order.** Quarantine the source (power remains off); restore the newest intact pre-incident snapshot (230 V returns, alarms still muted); re-enable and verify safety alerts. Each action updates the dashboard. Reordered, duplicated or unsafe actions do not advance progress.
-7. **Review the replay.** The completed mission explains the import, blackout, false report, evidence and each recovery action. Start a fresh five-minute mission for the next team.
+7. **Review the replay.** The completed mission explains the import, blackout, false report, evidence and each recovery action. Start a fresh seven-minute mission for the next team.
 
-Three progressive hints are available per stage; the final hint is a labelled walkthrough. Wrong answers have no extra time penalty. The event clock continues during investigation, AI requests and connection failures. The expanded five-minute experience still requires beginner visitor playtesting.
+Three progressive hints are available per stage; the final hint is a labelled walkthrough. Wrong answers have no extra time penalty. The event clock continues during investigation, AI requests and connection failures. The expanded seven-minute experience still requires beginner visitor playtesting.
 
 ## Generated incidents (facilitator spoilers)
 
@@ -42,7 +42,7 @@ Readings are fictional mission records, not real-world live telemetry. The chart
 
 The browser stores only the mission ID in sessionStorage. Refresh restores the original deadline, stage, collected files, selected instruction, hints, recovery steps and controller conversation. It does not grant extra event time. Temporary failures offer a connection retry rather than silently starting a new team. Revision checks prevent stale responses from undoing progress.
 
-The terminal retains the last 50 commands. Collected file evidence and the selected instruction persist separately, so a long transcript does not remove recovery clues. Sessions are isolated in memory. Event/completed sessions are retained for roughly 30 minutes; unfinished practice sessions expire after 24 hours without requests. Deploy one Node process/instance until a shared session store is added.
+The terminal retains the last 50 commands. Use Up/Down arrows to recall commands; Down past the newest command restores your unfinished input. History survives refreshes within a mission and clears for the next team. Collected file evidence and the selected instruction persist separately, so a long transcript does not remove recovery clues. Sessions are isolated in memory. Event/completed sessions are retained for roughly 30 minutes; unfinished practice sessions expire after 24 hours without requests. Deploy one Node process/instance until a shared session store is added.
 
 ## Optional Gemini
 

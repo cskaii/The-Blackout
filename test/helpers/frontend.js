@@ -21,6 +21,7 @@ class Node {
   append(...items){for(let item of items){if(typeof item==='string'){const n=new Node('#text',this.ownerDocument);n._text=item;item=n;}if(item.parentNode)item.parentNode.nodes=item.parentNode.nodes.filter(n=>n!==item);item.parentNode=this;this.nodes.push(item);}}
   replaceChildren(...items){for(const n of this.nodes)n.parentNode=null;this.nodes=[];this._text='';this._value=undefined;this.append(...items);}
   focus(){this.ownerDocument.activeElement=this;}
+  setSelectionRange(start,end){this.selectionStart=start;this.selectionEnd=end;}
   querySelector(s){return this.querySelectorAll(s)[0]||null;}
   querySelectorAll(selector){
     const selectors=selector.split(',').map(s=>s.trim()),found=[];

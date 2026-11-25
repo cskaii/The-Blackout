@@ -3,7 +3,7 @@ const config = require('../config');
 const { QUESTIONS } = require('./aiService');
 const { createIncident, filesFor, evidenceFor, monitoringFor, replayFor } = require('./incident');
 const sessions = new Map();
-const DURATION_MS = 5 * 60 * 1000;
+const DURATION_MS = 7 * 60 * 1000;
 const PASSPHRASES = ['NIGHT SHIFT', 'LAST LIGHT', 'EYES OPEN', 'BACKUP ACCESS', 'SILENT ALARM', 'DARK SIGNAL'];
 const OFFSETS = [3, 4, 5, 6, 7];
 let previousPhrase;

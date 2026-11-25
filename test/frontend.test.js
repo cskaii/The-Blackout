@@ -23,6 +23,50 @@ async function investigate(f){
   await f.fire('#diagnosis','onsubmit');assert.equal(f.state().stage,3);return source;
 }
 
+function arrow(f, key, modifiers = {}) {
+  let prevented = false;
+  f.document.querySelector('#command').onkeydown({key, ...modifiers, preventDefault(){prevented = true;}});
+  return prevented;
+}
+
+test('terminal arrow keys recall commands without running them and restore the draft',async()=>{
+  const f=frontend();await unlock(f);
+  const input=f.document.querySelector('#command');input.value='cat unfinished';
+  assert.equal(arrow(f,'ArrowUp'),false);assert.equal(input.value,'cat unfinished');
+  await f.command('ls');await f.command('cat incident.log');
+  input.value='cat status.txt';
+  assert.equal(arrow(f,'ArrowUp'),true);assert.equal(input.value,'cat incident.log');
+  assert.equal(input.selectionStart,input.value.length);assert.equal(input.selectionEnd,input.value.length);
+  await [...f.intervals.values()][0]();
+  arrow(f,'ArrowUp');assert.equal(input.value,'ls');
+  arrow(f,'ArrowUp');assert.equal(input.value,'ls');
+  arrow(f,'ArrowDown');assert.equal(input.value,'cat incident.log');
+  arrow(f,'ArrowDown');assert.equal(input.value,'cat status.txt');
+  assert.equal(arrow(f,'ArrowDown'),false);assert.equal(input.value,'cat status.txt');
+  assert.equal(arrow(f,'ArrowUp',{ctrlKey:true}),false);
+  assert.equal(arrow(f,'ArrowUp',{isComposing:true}),false);
+  assert.equal(f.state().terminalHistory.length,2);
+  arrow(f,'ArrowUp');await f.fire('#terminal','onsubmit');
+  assert.equal(input.value,'');assert.equal(f.state().terminalHistory.length,3);
+  arrow(f,'ArrowUp');assert.equal(input.value,'cat incident.log');
+  arrow(f,'ArrowDown');assert.equal(input.value,'');
+});
+
+test('terminal history resumes after refresh and stays isolated from the next mission',async()=>{
+  const f=frontend();await unlock(f);await f.command('pwd');
+  const refreshed=frontend({app:f.app,storage:f.storage});await refreshed.settle();
+  arrow(refreshed,'ArrowUp');assert.equal(refreshed.document.querySelector('#command').value,'pwd');
+  game.getSession(refreshed.storage.get('blackout-session')).startedAt-=game.DURATION_MS;
+  await [...refreshed.intervals.values()][0]();
+  await refreshed.fire('#again');
+  assert.equal(refreshed.state().remainingSeconds,420);
+  assert.equal(refreshed.document.querySelector('#timer').textContent,'07:00');
+  const s=refreshed.state();
+  refreshed.document.querySelector('#answer').value=game.encrypt(s.cipher.message,26-s.cipher.failedCells);
+  await refreshed.fire('#decode','onsubmit');
+  assert.equal(arrow(refreshed,'ArrowUp'),false);assert.equal(refreshed.document.querySelector('#command').value,'');
+});
+
 test('frontend completes evidence-led mission and shows each recovery confirmation and replay',async()=>{
   const f=frontend();await unlock(f);assert.equal(f.document.querySelector('#monitoring-voltage').textContent,'0 V');
   const source=await investigate(f);
@@ -63,8 +107,8 @@ test('AI fallback is playable, plain text and does not interrupt investigation',
 
 test('event refresh preserves the server deadline and stale snapshots cannot undo recovery',async()=>{
   const f=frontend();await unlock(f,'event');const s=game.getSession(f.storage.get('blackout-session'));s.startedAt-=60000;
-  await [...f.intervals.values()][0]();assert.ok(f.state().remainingSeconds<=240);
-  const refreshed=frontend({app:f.app,storage:f.storage});await refreshed.settle();assert.ok(refreshed.state().remainingSeconds<=240);
+  await [...f.intervals.values()][0]();assert.ok(f.state().remainingSeconds<=360);
+  const refreshed=frontend({app:f.app,storage:f.storage});await refreshed.settle();assert.ok(refreshed.state().remainingSeconds<=360);
   const current=refreshed.state();refreshed.context.older={...current,revision:current.revision-1,stage:1};vm.runInContext('update(older)',refreshed.context);assert.equal(refreshed.state().stage,2);
   s.startedAt-=game.DURATION_MS;await [...refreshed.intervals.values()][0]();assert.equal(refreshed.state().expired,true);assert.ok(refreshed.document.querySelector('#again'));assert.equal(refreshed.document.querySelector('#recovery'),null);
 });

@@ -42,7 +42,7 @@ async function investigate(app, id, s) {
 test('full mission requires supported diagnosis and recovery in sequence', async () => {
   const app = createApp();
   const { id, s } = await session(app);
-  assert.equal(game.publicState(s).remainingSeconds, 300);
+  assert.equal(game.publicState(s).remainingSeconds, 420);
   assert.equal(game.publicState(s).monitoring, null);
   assert.equal((await request(app, '/answer', {stage: 1, value: s.passphrase}, id)).data.state.stage, 2);
   assert.equal((await request(app, '/answer', {stage: 2, value: 'prompt-injection:' + s.incident.source}, id)).data.ok, false);

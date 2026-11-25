@@ -1,5 +1,6 @@
 let sessionId = null, state = null, ticker = null, busy = false, aiBusy = false, pollBusy = false;
 let wheelShift = 0, aiCooldownUntil = 0, localDeadline = null;
+let commandHistoryIndex = null, commandDraft = '';
 const screen = document.querySelector('#screen'), notice = document.querySelector('#notice');
 const initialBrief = screen.innerHTML;
 const names = ['Crack the Code', 'The Corrupted AI', 'Emergency Override'];
@@ -14,6 +15,19 @@ function button(text, fn) {
   return node;
 }
 function active() { return state && !state.expired && !state.finished; }
+function resetCommandRecall() { commandHistoryIndex = null; commandDraft = ''; }
+function recallCommand(event) {
+  if (event.isComposing || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+  if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+  const history = state?.terminalHistory || [], input = document.querySelector('#command');
+  if (!history.length || !input || (event.key === 'ArrowDown' && commandHistoryIndex === null)) return;
+  event.preventDefault();
+  if (commandHistoryIndex === null) { commandDraft = input.value; commandHistoryIndex = history.length; }
+  commandHistoryIndex = Math.max(0, Math.min(history.length, commandHistoryIndex + (event.key === 'ArrowUp' ? -1 : 1)));
+  input.value = commandHistoryIndex === history.length ? commandDraft : history[commandHistoryIndex].command;
+  input.setSelectionRange(input.value.length, input.value.length);
+  if (commandHistoryIndex === history.length) resetCommandRecall();
+}
 function screenKey(s) { return s ? [s.stage, s.finished, s.expired, s.recovery.step].join(':') : ''; }
 async function api(path, body) {
   const id = sessionId;
@@ -74,10 +88,11 @@ function startPolling() {
 }
 function bindBrief() { document.querySelector('#start').onclick = start; }
 function resetSession() {
+  resetCommandRecall();
   clearInterval(ticker); sessionId = null; state = null; localDeadline = null; aiBusy = false;
   try { sessionStorage.removeItem('blackout-session'); } catch {}
   screen.innerHTML = initialBrief; document.querySelector('#monitoring-dashboard').hidden = true;
-  document.querySelector('#stage').textContent = 'AWAITING RESPONSE TEAM'; document.querySelector('#timer').textContent = '05:00';
+  document.querySelector('#stage').textContent = 'AWAITING RESPONSE TEAM'; document.querySelector('#timer').textContent = '07:00';
   document.querySelector('#clock-label').textContent = 'TIME REMAINING'; document.querySelector('#power-status').textContent = 'POWER OFFLINE';
   document.body.classList.remove('restored', 'urgent');
   document.querySelectorAll('[data-stage]').forEach(node => { node.classList.remove('active', 'complete'); node.removeAttribute('aria-current'); });
@@ -90,7 +105,7 @@ async function start() {
     const d = await api('/start', { mode: 'event' });
     clearInterval(ticker); sessionId = d.sessionId;
     try { sessionStorage.setItem('blackout-session', sessionId); } catch {}
-    state = null; localDeadline = null; wheelShift = 0; aiBusy = false; aiCooldownUntil = 0;
+    state = null; localDeadline = null; wheelShift = 0; aiBusy = false; aiCooldownUntil = 0; resetCommandRecall();
     update(d.state); notice.textContent = ''; startPolling();
   } catch (error) { notice.textContent = error.message; }
   finally { busy = false; if (startButton.isConnected) startButton.disabled = false; syncControls(); }
@@ -171,6 +186,7 @@ function render() {
   } else if (state.stage === 2) {
     screen.innerHTML = '<span class="eyebrow">STAGE 02 // FIND WHAT WENT WRONG</span><h2 id="screen-title" tabindex="-1">Investigate the blackout</h2><p id="next-step" class="next-step" role="status"></p><h3>Read the files</h3><div class="terminal-bar"><span>analyst@blackout</span><span>INVESTIGATION CONSOLE</span></div><pre id="output" role="log" aria-label="Terminal output"></pre><form id="terminal"><label for="command">Type a command</label><div class="input-row"><input id="command" maxlength="150" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="cat incident.log" required><button data-mission-action>Run command</button></div></form><div id="instruction-picker"><h3>Which line tells the AI what to do?</h3><p class="muted">Choose the suspicious line from a file you have read. You can change your choice.</p><div id="instruction-options" class="instruction-options"></div></div><form id="diagnosis"><h3>What caused the blackout?</h3><p>Choose the attack that matches your selected line.</p><div class="plan-grid"><div><label for="threat">Attack type</label><select id="threat" required><option value="">Choose attack</option><option value="credential-theft">Credential theft (stolen passwords)</option><option value="data-poisoning">Training data poisoning (altered training data)</option><option value="prompt-injection">Prompt injection (hidden instructions)</option><option value="denial-of-service">Denial of service (overloaded service)</option></select></div><div><label for="source">Source file</label><select id="source" required></select><p class="muted">Filled from the line you selected.</p></div></div><button data-mission-action>Check my answer →</button></form><details class="optional-controller"><summary>Optional: question the AI controller</summary><div id="controller-panel"></div></details>';
     document.querySelector('#terminal').onsubmit = e => { e.preventDefault(); execute(document.querySelector('#command').value); };
+    document.querySelector('#command').onkeydown = recallCommand;
     document.querySelector('#diagnosis').onsubmit = e => {
       e.preventDefault();
       action('/answer', { stage: 2, value: document.querySelector('#threat').value + ':' + document.querySelector('#source').value });
@@ -195,14 +211,14 @@ function render() {
 function syncInvestigation() {
   if (!document.querySelector('#output') || state?.stage !== 2 || !active()) return;
   const output = document.querySelector('#output');
-  const transcript = 'ANALYST CONSOLE / Type your command below.' + state.terminalHistory.map(turn => '\n\nanalyst@blackout:~$ ' + turn.command + '\n' + turn.output).join('');
+  const transcript = 'ANALYST CONSOLE - Type your command below.' + state.terminalHistory.map(turn => '\n\nanalyst@blackout:~$ ' + turn.command + '\n' + turn.output).join('');
   if (output.textContent !== transcript) { output.textContent = transcript; output.scrollTop = output.scrollHeight; }
   const log = state.collectedEvidence.find(item => item.file === 'incident.log');
   const imported = log?.content.match(/imported (\S+) into/)?.[1];
   const chosen = state.evidence.cards.find(card => card.id === state.evidence.selectedInstruction);
   const next = !state.evidence.selectedRecord
     ? '1 / Look at the dashboard above. When did voltage first drop to 0 V while the AI still said ALL CLEAR? Choose that time.'
-    : !log ? '2 / Find what the AI imported. Type cat incident.log in the terminal.'
+    : !log ? 'Stage 2 - Find what the AI imported. Type cat incident.log in the terminal.'
     : !state.readFiles.includes(imported) ? '3 / The log names ' + imported + '. Type cat ' + imported + ' to open it.'
     : !chosen ? '4 / Read the attachment lines below. Choose the line that gives the AI an instruction.'
     : '5 / Line selected. Choose the matching attack below and check your answer.';
@@ -232,6 +248,7 @@ async function execute(command) {
   const input = document.querySelector('#command'), original = input?.value;
   const d = await action('/terminal', { command });
   if (d && !d.state.expired && state.stage === 2 && input?.isConnected) {
+    resetCommandRecall();
     if (input.value === original && command === original) input.value = '';
     input.focus();
   }
